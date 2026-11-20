@@ -9,7 +9,8 @@ import {
   TreePine, 
   Plane,
   X,
-  Info
+  Info,
+  BookOpen
 } from 'lucide-react';
 
 export type NavTab = 
@@ -25,6 +26,7 @@ interface SidebarProps {
   onSelectTab: (tab: NavTab) => void;
   isOpen: boolean;
   onClose: () => void;
+  onOpenLanding?: () => void;
 }
 
 export function Sidebar({
@@ -32,6 +34,7 @@ export function Sidebar({
   onSelectTab,
   isOpen,
   onClose,
+  onOpenLanding,
 }: SidebarProps) {
   const navItems: Array<{
     id: NavTab;
@@ -172,7 +175,7 @@ export function Sidebar({
         </div>
 
         {/* Bottom Card: Anti-Hallucination & Architecture Notice */}
-        <div className="p-4 border-t border-[#E7E9E2] bg-white">
+        <div className="p-4 border-t border-[#E7E9E2] bg-white space-y-3">
           <div className="rounded-2xl border border-[#E7E9E2] bg-[#F7F7F0] p-3.5">
             <div className="flex items-center gap-1.5 text-xs font-bold text-[#173F2B] font-heading">
               <Info className="h-3.5 w-3.5 text-[#173F2B] shrink-0" />
@@ -185,6 +188,19 @@ export function Sidebar({
               <li>• 100% Offline LocalStorage sync</li>
             </ul>
           </div>
+
+          {onOpenLanding && (
+            <button
+              onClick={() => {
+                onOpenLanding();
+                onClose();
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#E7E9E2] bg-[#F7F7F0] py-2.5 text-xs font-bold text-[#173F2B] hover:bg-white hover:border-[#6F9B55] transition font-heading"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-[#6F9B55]" />
+              <span>Product Guide & Overview</span>
+            </button>
+          )}
         </div>
       </aside>
     </>

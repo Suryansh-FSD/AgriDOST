@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { NavTab } from '@/components/layout/Sidebar';
 import { DashboardOverview } from '@/components/dashboard/DashboardOverview';
+import { LandingPage } from '@/components/landing/LandingPage';
 import { useFarmData } from '@/lib/data/useFarmData';
 
 // Subagent 1: Mapping & Crop Planning
@@ -25,12 +26,30 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
+  const [view, setView] = useState<'landing' | 'app'>('landing');
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [operationsSubTab, setOperationsSubTab] = useState<'trees' | 'tasks' | 'supplies'>('trees');
   const { activeFarm, refresh } = useFarmData();
 
+  if (view === 'landing') {
+    return (
+      <LandingPage
+        onLaunchApp={(tab) => {
+          if (tab) {
+            setCurrentTab(tab);
+          }
+          setView('app');
+        }}
+      />
+    );
+  }
+
   return (
-    <AppShell currentTab={currentTab} onSelectTab={setCurrentTab}>
+    <AppShell 
+      currentTab={currentTab} 
+      onSelectTab={setCurrentTab}
+      onOpenLanding={() => setView('landing')}
+    >
       {/* 1. Central Farm Overview & Dashboard */}
       {currentTab === 'dashboard' && (
         <DashboardOverview onNavigateToTab={setCurrentTab} />

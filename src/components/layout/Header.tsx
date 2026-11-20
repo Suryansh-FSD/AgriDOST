@@ -10,7 +10,8 @@ import {
   RotateCcw, 
   Menu,
   ShieldCheck,
-  MapPin
+  MapPin,
+  BookOpen
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -20,6 +21,7 @@ interface HeaderProps {
   onOpenAddFarmModal: () => void;
   onResetDemo: () => void;
   onToggleSidebar: () => void;
+  onOpenLanding?: () => void;
 }
 
 export function Header({
@@ -29,6 +31,7 @@ export function Header({
   onOpenAddFarmModal,
   onResetDemo,
   onToggleSidebar,
+  onOpenLanding,
 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#E7E9E2] bg-white/95 px-4 md:px-6 backdrop-blur shadow-2xs">
@@ -42,13 +45,17 @@ export function Header({
           <Menu className="h-5 w-5" />
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#173F2B] text-white shadow-xs">
+        <div 
+          onClick={onOpenLanding}
+          className={`flex items-center gap-2.5 ${onOpenLanding ? 'cursor-pointer group' : ''}`}
+          title={onOpenLanding ? "Return to AgriDOST Platform Overview & Guide" : undefined}
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#173F2B] text-white shadow-xs group-hover:scale-105 transition">
             <Sprout className="h-5 w-5 text-[#DCE8D3]" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-[#173F2B] font-heading">
+              <span className="text-xl font-bold tracking-tight text-[#173F2B] font-heading group-hover:text-[#6F9B55] transition">
                 AgriDOST
               </span>
               <span className="rounded-full bg-[#DCE8D3] px-2 py-0.5 text-[10px] font-bold text-[#173F2B] border border-[#6F9B55]/30">
@@ -64,6 +71,17 @@ export function Header({
 
       {/* Right: Farm Selector & Quick Actions */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Landing Page Guide Button */}
+        {onOpenLanding && (
+          <button
+            onClick={onOpenLanding}
+            className="flex h-9 items-center gap-1.5 rounded-2xl border border-[#E7E9E2] bg-white px-3 text-xs font-semibold text-[#173F2B] shadow-2xs hover:bg-[#F7F7F0] hover:border-[#6F9B55]/50 transition"
+            title="Read AgriDOST Platform Guide & Technical Architecture"
+          >
+            <BookOpen className="h-3.5 w-3.5 text-[#6F9B55]" />
+            <span className="hidden sm:inline">Platform Guide</span>
+          </button>
+        )}
         {/* Farm Switcher Dropdown */}
         <div className="relative flex items-center">
           <div className="relative flex items-center rounded-2xl border border-[#E7E9E2] bg-[#F7F7F0] p-1.5 pl-3 transition hover:border-[#6F9B55]/50 shadow-2xs">

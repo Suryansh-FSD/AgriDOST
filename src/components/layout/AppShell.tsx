@@ -9,10 +9,11 @@ import { useFarmData } from '@/lib/data/useFarmData';
 interface AppShellProps {
   currentTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
+  onOpenLanding?: () => void;
   children: React.ReactNode;
 }
 
-export function AppShell({ currentTab, onSelectTab, children }: AppShellProps) {
+export function AppShell({ currentTab, onSelectTab, onOpenLanding, children }: AppShellProps) {
   const { farms, activeFarm, switchFarm, addFarm, resetDemo } = useFarmData();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddFarmOpen, setIsAddFarmOpen] = useState(false);
@@ -27,6 +28,7 @@ export function AppShell({ currentTab, onSelectTab, children }: AppShellProps) {
         onOpenAddFarmModal={() => setIsAddFarmOpen(true)}
         onResetDemo={resetDemo}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onOpenLanding={onOpenLanding}
       />
 
       {/* Main Body with Sidebar + Content */}
@@ -36,6 +38,7 @@ export function AppShell({ currentTab, onSelectTab, children }: AppShellProps) {
           onSelectTab={onSelectTab}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
+          onOpenLanding={onOpenLanding}
         />
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
