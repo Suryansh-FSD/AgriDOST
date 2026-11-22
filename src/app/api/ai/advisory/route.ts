@@ -12,6 +12,7 @@ import {
   callGeminiWithFailover,
   parseAndValidateWithZod,
   getGeminiIntegrationHealth,
+  DEFAULT_GEMINI_CANDIDATES,
 } from '@/lib/ai/client';
 
 /**
@@ -131,7 +132,7 @@ Strict Grounding Instructions:
 5. Return strictly parseable JSON conforming to the AgronomicAdvisory schema.
 `.trim();
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const candidateModels = DEFAULT_GEMINI_CANDIDATES;
     let aiResultText = '';
     let successfulModel = '';
 

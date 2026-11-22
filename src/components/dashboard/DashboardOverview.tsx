@@ -9,6 +9,7 @@ import { ZoneBreakdown } from './ZoneBreakdown';
 import { RecentActivity } from './RecentActivity';
 import { QuickActionToolbar } from './QuickActionToolbar';
 import { IntegrationHealthWidget } from './IntegrationHealthWidget';
+import { TinyFishResearchWidget } from '@/components/intelligence';
 import { NavTab } from '../layout/Sidebar';
 
 interface DashboardOverviewProps {
@@ -70,6 +71,11 @@ export function DashboardOverview({ onNavigateToTab }: DashboardOverviewProps) {
 
       {/* External Integration Health Gateway */}
       <IntegrationHealthWidget />
+
+      {/* TinyFish AI Web Intelligence Research Hub */}
+      <TinyFishResearchWidget
+        defaultCommodity={activeFarm?.soilType || 'Soyabean'}
+      />
 
       {/* Field Action Feed */}
       <RecentActivity

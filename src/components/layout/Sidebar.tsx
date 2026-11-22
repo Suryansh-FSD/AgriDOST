@@ -14,7 +14,8 @@ import {
   Landmark,
   Workflow,
   TrendingUp,
-  Send
+  Send,
+  Globe,
 } from 'lucide-react';
 
 export type NavTab = 
@@ -27,7 +28,8 @@ export type NavTab =
   | 'schemes'
   | 'automation'
   | 'market'
-  | 'telegram';
+  | 'telegram'
+  | 'research';
 
 
 interface SidebarProps {
@@ -119,6 +121,13 @@ export function Sidebar({
       description: 'n8n autonomous workflows & execution logs',
       icon: Workflow,
       badge: 'n8n',
+    },
+    {
+      id: 'research',
+      label: 'Web Intelligence',
+      description: 'TinyFish live search & extraction',
+      icon: Globe,
+      badge: 'TinyFish',
     },
   ];
 

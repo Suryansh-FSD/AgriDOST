@@ -29,6 +29,9 @@ import { AutomationCenter } from '@/components/automation';
 import { MarketIntelligenceModule } from '@/components/market';
 import { TelegramAlertCenter } from '@/components/telegram';
 
+// AgriDOST 4.0: Integration #8 — TinyFish AI Web Intelligence
+import { TinyFishResearchWidget } from '@/components/intelligence';
+
 import { 
   TreePine, 
   Clock, 
@@ -217,6 +220,15 @@ export default function Home() {
         <div className="space-y-6">
           <TelegramAlertCenter
             farm={activeFarm}
+          />
+        </div>
+      )}
+
+      {/* 11. TinyFish AI Live Web Intelligence */}
+      {currentTab === 'research' && (
+        <div className="space-y-6">
+          <TinyFishResearchWidget
+            defaultCommodity={activeFarm?.soilType || 'Soyabean'}
           />
         </div>
       )}

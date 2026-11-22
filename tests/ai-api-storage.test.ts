@@ -718,11 +718,8 @@ describe('AgriDOST: AI, API & Storage Automated Test Suite', () => {
       it('should return HTTP 500 when all candidate Gemini models fail with upstream error', async () => {
         process.env.GEMINI_API_KEY = 'mock-valid-gemini-key-12345';
 
-        // All 3 candidate models fail
-        mockGenerateContent
-          .mockRejectedValueOnce(new Error('Gemini API Error 1'))
-          .mockRejectedValueOnce(new Error('Gemini API Error 2'))
-          .mockRejectedValueOnce(new Error('Gemini API Rate Limit 429'));
+        // All candidate models fail with upstream rate limit error
+        mockGenerateContent.mockRejectedValue(new Error('Gemini API Rate Limit 429'));
 
         const req = new NextRequest('http://localhost:3000/api/ai/health', {
           method: 'POST',

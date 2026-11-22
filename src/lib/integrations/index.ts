@@ -15,6 +15,7 @@ import {
   MasterIntegrationStatusReport,
   IntegrationOperatingMode,
 } from '@/types/integrations';
+import { DEFAULT_GEMINI_CANDIDATES } from '@/lib/ai/client';
 
 /**
  * Fallback static health descriptors when an integration's dedicated health evaluator
@@ -77,6 +78,12 @@ export async function getMasterIntegrationStatus(baseUrl: string = ''): Promise<
     process.env.DATA_GOV_API_KEY.trim().length > 5
   );
 
+  const hasTinyFish = Boolean(
+    process.env.TINYFISH_API_KEY &&
+    process.env.TINYFISH_API_KEY.trim().length > 5 &&
+    !process.env.TINYFISH_API_KEY.includes('placeholder')
+  );
+
   // 1. Supabase Check
   try {
     const { getSupabaseHealth } = await import('@/lib/supabase');
@@ -115,7 +122,7 @@ export async function getMasterIntegrationStatus(baseUrl: string = ''): Promise<
       lastError: null,
       featuresSupported: ['Multimodal Leaf Diagnosis', 'Agronomic Advisory', 'Schemes Guidance', 'Candidate Failover Cascade', 'Bilingual EN/HI'],
       diagnosticDetails: {
-        candidateModels: ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+        candidateModels: DEFAULT_GEMINI_CANDIDATES,
         deterministicFallbackAvailable: true,
       },
     };
@@ -225,6 +232,31 @@ export async function getMasterIntegrationStatus(baseUrl: string = ''): Promise<
     );
   }
 
+  // 7. TinyFish AI Web Intelligence (Integration #8)
+  try {
+    const { getTinyFishHealth } = await import('@/lib/integrations/tinyfish');
+    if (typeof getTinyFishHealth === 'function') {
+      integrations['tinyfish'] = await getTinyFishHealth();
+    } else {
+      integrations['tinyfish'] = createFallbackStatus(
+        'tinyfish',
+        'TinyFish Web Intelligence',
+        'web-intelligence',
+        hasTinyFish ? 'SIMULATED' : 'NOT_CONFIGURED',
+        hasTinyFish ? 'TinyFish client adapter active.' : 'TINYFISH_API_KEY not configured.'
+      );
+    }
+  } catch (err: unknown) {
+    integrations['tinyfish'] = createFallbackStatus(
+      'tinyfish',
+      'TinyFish Web Intelligence',
+      'web-intelligence',
+      'SIMULATED',
+      'Operating in deterministic offline agricultural research mode.',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
   // Calculate overall status
   const statuses = Object.values(integrations).map((i) => i.operatingMode);
   let overallStatus: MasterIntegrationStatusReport['overallStatus'] = 'healthy';
@@ -245,6 +277,7 @@ export async function getMasterIntegrationStatus(baseUrl: string = ''): Promise<
       hasGoogleMaps,
       hasTelegram,
       hasDataGov,
+      hasTinyFish,
     },
   };
 }

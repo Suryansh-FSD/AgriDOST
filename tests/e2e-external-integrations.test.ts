@@ -16,6 +16,7 @@ import {
   getConsentByFarmerId,
 } from '@/lib/telegram/consent';
 import { sendTelegramNotification } from '@/lib/telegram';
+import { runAgriculturalResearch } from '@/lib/integrations/tinyfish';
 
 // In-memory localStorage mock for node environment
 class MockLocalStorage {
@@ -70,6 +71,7 @@ describe('AgriDOST 4.0: Comprehensive End-to-End External Integration Scenarios'
       expect(report.integrations['market']).toBeDefined();
       expect(report.integrations['telegram']).toBeDefined();
       expect(report.integrations['google-maps']).toBeDefined();
+      expect(report.integrations['tinyfish']).toBeDefined();
 
       // Ensure every integration is in a recognized, non-crashing state
       for (const [provider, status] of Object.entries(report.integrations)) {
@@ -232,6 +234,23 @@ describe('AgriDOST 4.0: Comprehensive End-to-End External Integration Scenarios'
       expect(evaluation.cibrcGuidelinesMet).toBe(true);
       // Invariant: Human verification must still be required even when safe
       expect(evaluation.humanVerificationRequired).toBe(true);
+    });
+  });
+
+  describe('Scenario F: TinyFish AI Web Intelligence Invariants (#8)', () => {
+    it('should perform agricultural web research with source classification and MSP separation', async () => {
+      const research = await runAgriculturalResearch({
+        category: 'mandi',
+        query: 'Soyabean Mandi Arrival Latur',
+        commodity: 'Soyabean',
+      });
+
+      expect(research.provider).toBe('tinyfish');
+      expect(research.category).toBe('mandi');
+      expect(research.sources.length).toBeGreaterThan(0);
+      expect(research.structuredData?.officialMSP).toBeDefined();
+      // Ensure MSP and spot prices are not conflated
+      expect(research.warnings?.[0]).toContain('Spot market prices');
     });
   });
 });

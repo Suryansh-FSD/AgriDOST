@@ -6,6 +6,7 @@ import {
   parseAndValidateWithZod,
   getGeminiIntegrationHealth,
   GeminiContentItem,
+  DEFAULT_GEMINI_CANDIDATES,
 } from '@/lib/ai/client';
 
 /**
@@ -147,8 +148,7 @@ Strict Instructions:
       },
     ];
 
-    // Cascade: gemini-3.8-flash, gemini-2.0-flash, gemini-1.5-flash
-    const candidateModels = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const candidateModels = DEFAULT_GEMINI_CANDIDATES;
     const aiResult = await callGeminiWithFailover(contents, {
       apiKey,
       candidateModels,

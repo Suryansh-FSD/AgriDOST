@@ -18,6 +18,7 @@ import {
   Send,
   MapPin,
   Workflow,
+  Globe,
 } from 'lucide-react';
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -28,6 +29,7 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   messaging: Send,
   geospatial: MapPin,
   automation: Workflow,
+  'web-intelligence': Globe,
 };
 
 export function IntegrationHealthWidget() {
@@ -109,7 +111,7 @@ export function IntegrationHealthWidget() {
               External Integration Health Gateway
             </h3>
             <p className="text-[11px] text-[#26312A]/60">
-              6 Core Bridges + n8n Automation • {lastUpdated ? `Synced at ${lastUpdated}` : 'Checking connectivity...'}
+              8 Production Integrations (TinyFish AI #8) • {lastUpdated ? `Synced at ${lastUpdated}` : 'Checking connectivity...'}
             </p>
           </div>
         </div>
@@ -124,7 +126,7 @@ export function IntegrationHealthWidget() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
         {integrationsList.map((item) => {
           const Icon = CATEGORY_ICONS[item.category] || Activity;
           const badge = getModeBadge(item.operatingMode);

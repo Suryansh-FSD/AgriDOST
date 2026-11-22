@@ -25,7 +25,7 @@ $$ LANGUAGE plpgsql;
 -- Farmer identity, regional language preference, category, and regional metadata
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS farmer_profiles (
-  id UUID PRIMARY KEY DEFAULT auth.uid(),
+  id UUID PRIMARY KEY DEFAULT coalesce(auth.uid(), gen_random_uuid()),
   full_name TEXT NOT NULL,
   phone TEXT,
   email TEXT,
@@ -301,7 +301,31 @@ FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
 -- ==============================================================================
--- 10. Performance & Foreign Key Indexes
+-- 10. Table: farmer_telegram_registrations
+-- Persistent Farmer Telegram opt-in consent records and notification channel bindings
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS farmer_telegram_registrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  farmer_id TEXT NOT NULL UNIQUE,
+  chat_id BIGINT NOT NULL,
+  username TEXT,
+  opt_in_status BOOLEAN NOT NULL DEFAULT true,
+  language_preference TEXT NOT NULL DEFAULT 'hi' CHECK (language_preference IN ('en', 'hi', 'mr')),
+  consent_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_timestamp TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trigger_farmer_telegram_registrations_updated_at ON farmer_telegram_registrations;
+CREATE TRIGGER trigger_farmer_telegram_registrations_updated_at
+BEFORE UPDATE ON farmer_telegram_registrations
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- ==============================================================================
+-- 11. Performance & Foreign Key Indexes
 -- ==============================================================================
 
 -- farmer_profiles
@@ -352,8 +376,12 @@ CREATE INDEX IF NOT EXISTS idx_spray_operations_zone_id ON spray_operations(zone
 CREATE INDEX IF NOT EXISTS idx_spray_operations_scheduled_time ON spray_operations(scheduled_time DESC);
 CREATE INDEX IF NOT EXISTS idx_spray_operations_status ON spray_operations(status);
 
+-- farmer_telegram_registrations
+CREATE INDEX IF NOT EXISTS idx_telegram_farmer_id ON farmer_telegram_registrations(farmer_id);
+CREATE INDEX IF NOT EXISTS idx_telegram_chat_id ON farmer_telegram_registrations(chat_id);
+
 -- ==============================================================================
--- 11. Row Level Security (RLS) Configuration & Strict Tenant Isolation
+-- 12. Row Level Security (RLS) Configuration & Strict Tenant Isolation
 -- (select auth.uid()) subquery optimization ensures single evaluation per statement.
 -- TO authenticated ensures anonymous public access is rejected at database layer.
 -- ==============================================================================
@@ -367,6 +395,7 @@ ALTER TABLE farm_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE farm_supplies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tree_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE spray_operations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE farmer_telegram_registrations ENABLE ROW LEVEL SECURITY;
 
 -- ------------------------------------------------------------------------------
 -- 11.1 RLS: farmer_profiles
@@ -619,3 +648,40 @@ CREATE POLICY "Farmers can delete own spray operations"
 ON spray_operations FOR DELETE
 TO authenticated
 USING ((select auth.uid()) = farmer_id);
+
+-- ------------------------------------------------------------------------------
+-- 12.10 RLS: farmer_telegram_registrations
+-- Tenant isolation ensures farmers can only query or update their own notification registrations.
+-- ------------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Farmers can view own telegram registration" ON farmer_telegram_registrations;
+CREATE POLICY "Farmers can view own telegram registration"
+ON farmer_telegram_registrations FOR SELECT
+TO authenticated
+USING ((select auth.uid())::text = farmer_id);
+
+DROP POLICY IF EXISTS "Farmers can insert own telegram registration" ON farmer_telegram_registrations;
+CREATE POLICY "Farmers can insert own telegram registration"
+ON farmer_telegram_registrations FOR INSERT
+TO authenticated
+WITH CHECK ((select auth.uid())::text = farmer_id);
+
+DROP POLICY IF EXISTS "Farmers can update own telegram registration" ON farmer_telegram_registrations;
+CREATE POLICY "Farmers can update own telegram registration"
+ON farmer_telegram_registrations FOR UPDATE
+TO authenticated
+USING ((select auth.uid())::text = farmer_id)
+WITH CHECK ((select auth.uid())::text = farmer_id);
+
+DROP POLICY IF EXISTS "Farmers can delete own telegram registration" ON farmer_telegram_registrations;
+CREATE POLICY "Farmers can delete own telegram registration"
+ON farmer_telegram_registrations FOR DELETE
+TO authenticated
+USING ((select auth.uid())::text = farmer_id);
+
+-- ==============================================================================
+-- 13. Schema Grants & Public Schema Permissions
+-- Grants explicit permissions to authenticated and service_role roles
+-- and read-only schema introspection for anon
+-- ==============================================================================
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;

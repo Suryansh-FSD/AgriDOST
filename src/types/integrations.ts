@@ -33,7 +33,7 @@ export interface DataFreshnessMetadata {
 export interface IntegrationHealthResponse {
   provider: string; // e.g., 'supabase', 'gemini', 'open-meteo', 'data.gov.in', 'telegram', 'google-maps', 'n8n'
   displayName: string;
-  category: 'database' | 'ai' | 'weather' | 'market' | 'messaging' | 'geospatial' | 'automation';
+  category: 'database' | 'ai' | 'weather' | 'market' | 'messaging' | 'geospatial' | 'automation' | 'web-intelligence';
   configurationStatus: ConfigurationStatus;
   connectivityStatus: ConnectivityStatus;
   operatingMode: IntegrationOperatingMode;
@@ -56,5 +56,6 @@ export interface MasterIntegrationStatusReport {
     hasGoogleMaps: boolean;
     hasTelegram: boolean;
     hasDataGov: boolean;
+    hasTinyFish?: boolean;
   };
 }

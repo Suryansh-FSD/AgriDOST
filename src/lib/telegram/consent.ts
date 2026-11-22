@@ -17,6 +17,11 @@ import {
   TelegramChat,
   TelegramUser,
 } from '@/types/telegram';
+import {
+  getSupabaseConfigStatus,
+  getSupabaseRestUrl,
+  getSupabaseHeaders,
+} from '@/lib/supabase/client';
 
 // In-memory singleton store for farmer consents
 class ConsentStore {
@@ -89,6 +94,220 @@ class ConsentStore {
 // Global singleton instance
 const globalConsentStore = new ConsentStore();
 
+export interface TelegramConsentPersistenceResult {
+  success: boolean;
+  isOffline: boolean;
+  message: string;
+  record?: FarmerConsentRecord;
+  error?: string;
+}
+
+/**
+ * Persist an opt-in or revocation consent record to Supabase.
+ * Enforces:
+ * 1. Checks if Supabase credentials are configured.
+ * 2. Uses UPSERT (Prefer: resolution=merge-duplicates) with farmer_id conflict target.
+ * 3. Gracefully reports offline when Supabase is unconfigured, unreachable, or table not yet migrated.
+ */
+export async function persistConsentToSupabase(
+  record: FarmerConsentRecord,
+  options?: {
+    overrides?: { url?: string; anonKey?: string };
+    authToken?: string;
+  }
+): Promise<TelegramConsentPersistenceResult> {
+  const status = getSupabaseConfigStatus(options?.overrides);
+
+  if (!status.isConfigured) {
+    return {
+      success: true,
+      isOffline: true,
+      message: 'Supabase unconfigured; consent stored in memory and local persistence.',
+      record,
+    };
+  }
+
+  try {
+    const endpoint = getSupabaseRestUrl('farmer_telegram_registrations', options?.overrides);
+    const headers = getSupabaseHeaders({
+      authToken: options?.authToken,
+      anonKey: options?.overrides?.anonKey,
+      prefer: 'resolution=merge-duplicates',
+    });
+
+    const payload = {
+      farmer_id: record.farmerId,
+      chat_id: Number(record.chatId),
+      username: record.username || null,
+      opt_in_status: Boolean(record.optInStatus),
+      language_preference: record.languagePreference || 'hi',
+      consent_timestamp: record.consentTimestamp || new Date().toISOString(),
+      revoked_timestamp: record.revokedTimestamp || null,
+      metadata: record.metadata || {},
+    };
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return {
+        success: false,
+        isOffline: true,
+        message: `Supabase registration table returned HTTP ${res.status}. Falling back to local store.`,
+        error: errText || `HTTP ${res.status}`,
+        record,
+      };
+    }
+
+    return {
+      success: true,
+      isOffline: false,
+      message: `Persisted consent for farmer '${record.farmerId}' to Supabase cloud.`,
+      record,
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Network error';
+    return {
+      success: false,
+      isOffline: true,
+      message: `Failed to persist consent to Supabase cloud: ${errorMsg}. Local copy is safe.`,
+      error: errorMsg,
+      record,
+    };
+  }
+}
+
+/**
+ * Load farmer consent record from Supabase cloud if available.
+ * Falls back to local in-memory store if unconfigured, offline, or not found.
+ */
+export async function loadConsentFromSupabase(
+  farmerId: string,
+  options?: {
+    overrides?: { url?: string; anonKey?: string };
+    authToken?: string;
+  }
+): Promise<FarmerConsentRecord | null> {
+  if (!farmerId) return null;
+
+  const status = getSupabaseConfigStatus(options?.overrides);
+  if (!status.isConfigured) {
+    return globalConsentStore.getByFarmerId(farmerId);
+  }
+
+  try {
+    const baseUrl = getSupabaseRestUrl('farmer_telegram_registrations', options?.overrides);
+    const queryUrl = `${baseUrl}?farmer_id=eq.${encodeURIComponent(farmerId)}&select=*`;
+    const headers = getSupabaseHeaders({
+      authToken: options?.authToken,
+      anonKey: options?.overrides?.anonKey,
+    });
+
+    const res = await fetch(queryUrl, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!res.ok) {
+      return globalConsentStore.getByFarmerId(farmerId);
+    }
+
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      const row = data[0];
+      const record: FarmerConsentRecord = {
+        farmerId: row.farmer_id,
+        chatId: row.chat_id,
+        username: row.username || undefined,
+        optInStatus: Boolean(row.opt_in_status),
+        languagePreference: (row.language_preference as SupportedLanguage) || 'hi',
+        consentTimestamp: row.consent_timestamp || new Date().toISOString(),
+        revokedTimestamp: row.revoked_timestamp || null,
+        metadata: (row.metadata as Record<string, unknown>) || {},
+      };
+
+      // Cache into local L1 store
+      globalConsentStore.save(record);
+      return record;
+    }
+
+    return globalConsentStore.getByFarmerId(farmerId);
+  } catch {
+    return globalConsentStore.getByFarmerId(farmerId);
+  }
+}
+
+/**
+ * Sync all farmer consent registrations from Supabase cloud into the in-memory cache.
+ */
+export async function syncConsentsWithSupabase(options?: {
+  overrides?: { url?: string; anonKey?: string };
+  authToken?: string;
+}): Promise<{ synced: number; isOffline: boolean; message: string }> {
+  const status = getSupabaseConfigStatus(options?.overrides);
+  if (!status.isConfigured) {
+    return {
+      synced: 0,
+      isOffline: true,
+      message: 'Supabase unconfigured; operating in offline mode.',
+    };
+  }
+
+  try {
+    const endpoint = `${getSupabaseRestUrl('farmer_telegram_registrations', options?.overrides)}?select=*`;
+    const headers = getSupabaseHeaders({
+      authToken: options?.authToken,
+      anonKey: options?.overrides?.anonKey,
+    });
+
+    const res = await fetch(endpoint, { method: 'GET', headers });
+    if (!res.ok) {
+      return {
+        synced: 0,
+        isOffline: true,
+        message: `Supabase returned HTTP ${res.status}.`,
+      };
+    }
+
+    const rows = await res.json();
+    if (!Array.isArray(rows)) {
+      return { synced: 0, isOffline: false, message: 'No rows returned.' };
+    }
+
+    let synced = 0;
+    for (const row of rows) {
+      const record: FarmerConsentRecord = {
+        farmerId: row.farmer_id,
+        chatId: row.chat_id,
+        username: row.username || undefined,
+        optInStatus: Boolean(row.opt_in_status),
+        languagePreference: (row.language_preference as SupportedLanguage) || 'hi',
+        consentTimestamp: row.consent_timestamp || new Date().toISOString(),
+        revokedTimestamp: row.revoked_timestamp || null,
+        metadata: (row.metadata as Record<string, unknown>) || {},
+      };
+      globalConsentStore.save(record);
+      synced++;
+    }
+
+    return {
+      synced,
+      isOffline: false,
+      message: `Synchronized ${synced} consent record(s) from Supabase.`,
+    };
+  } catch (err) {
+    return {
+      synced: 0,
+      isOffline: true,
+      message: `Sync failed: ${err instanceof Error ? err.message : 'Network error'}`,
+    };
+  }
+}
+
 /**
  * Register or update explicit consent for a farmer.
  */
@@ -116,7 +335,20 @@ export function registerConsent(params: {
     },
   };
 
-  return globalConsentStore.save(record);
+  const saved = globalConsentStore.save(record);
+
+  // Background async persistence to Supabase if in server environment with configured URL
+  if (
+    typeof fetch === 'function' &&
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')
+  ) {
+    persistConsentToSupabase(saved).catch((err) => {
+      console.warn('[Telegram Consent] Background Supabase persist error:', err);
+    });
+  }
+
+  return saved;
 }
 
 /**
@@ -127,7 +359,26 @@ export function revokeConsent(identifier: {
   farmerId?: string;
   chatId?: number | string;
 }): boolean {
-  return globalConsentStore.revoke(identifier);
+  const revoked = globalConsentStore.revoke(identifier);
+  if (revoked) {
+    const updated = identifier.farmerId
+      ? globalConsentStore.getByFarmerId(identifier.farmerId)
+      : identifier.chatId
+      ? globalConsentStore.getByChatId(identifier.chatId)
+      : null;
+
+    if (
+      updated &&
+      typeof fetch === 'function' &&
+      process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')
+    ) {
+      persistConsentToSupabase(updated).catch((err) => {
+        console.warn('[Telegram Consent] Background Supabase revoke persist error:', err);
+      });
+    }
+  }
+  return revoked;
 }
 
 /**
@@ -250,6 +501,7 @@ You will now receive timely, verified alerts:
     const farmerId = existing?.farmerId || `farmer_${chat.id}`;
 
     revokeConsent({ chatId: chat.id });
+    const revokedRecord = globalConsentStore.getByChatId(chat.id);
 
     const replyText = `🛑 <b>AgriDOST Alert Service Deactivated / सेवा बंद की गई</b>
 
@@ -264,6 +516,7 @@ No further automated notifications will be sent to this Telegram account.
       handled: true,
       replyText,
       action: 'opt_out',
+      record: revokedRecord || undefined,
     };
   }
 

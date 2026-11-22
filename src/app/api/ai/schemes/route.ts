@@ -8,7 +8,11 @@ import {
   getOfflineSchemeAnswer,
 } from '@/lib/ai/schemes-prompt';
 import { SupportedLanguage } from '@/lib/i18n';
-import { callGeminiWithFailover, getGeminiIntegrationHealth } from '@/lib/ai/client';
+import {
+  callGeminiWithFailover,
+  getGeminiIntegrationHealth,
+  DEFAULT_GEMINI_CANDIDATES,
+} from '@/lib/ai/client';
 
 /**
  * Zod Schema for Scheme AI Request validation.
@@ -154,7 +158,7 @@ Remember:
 - If unknown, state the official refusal referring to KVK / CSC.
 `.trim();
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const candidateModels = DEFAULT_GEMINI_CANDIDATES;
     let aiText = '';
     let successfulModel = '';
 

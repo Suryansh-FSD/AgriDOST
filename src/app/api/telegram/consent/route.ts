@@ -5,6 +5,8 @@ import {
   registerConsent,
   revokeConsent,
   listConsents,
+  persistConsentToSupabase,
+  loadConsentFromSupabase,
 } from '@/lib/telegram/consent';
 
 /**
@@ -28,11 +30,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const consent = farmerId
+    let consent = farmerId
       ? getConsentByFarmerId(farmerId)
       : chatId
       ? getConsentByChatId(chatId)
       : null;
+
+    if (!consent && farmerId) {
+      consent = await loadConsentFromSupabase(farmerId);
+    }
 
     if (!consent) {
       return NextResponse.json({
@@ -91,6 +97,9 @@ export async function POST(req: NextRequest) {
     if (optInStatus === false) {
       const revoked = revokeConsent({ farmerId, chatId });
       const record = getConsentByFarmerId(farmerId);
+      if (record) {
+        await persistConsentToSupabase(record).catch(() => {});
+      }
       return NextResponse.json({
         success: true,
         optedIn: false,
@@ -115,6 +124,8 @@ export async function POST(req: NextRequest) {
       languagePreference,
       metadata,
     });
+
+    await persistConsentToSupabase(record).catch(() => {});
 
     return NextResponse.json({
       success: true,

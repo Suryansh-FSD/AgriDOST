@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TelegramUpdate } from '@/types/telegram';
 import { defaultTelegramClient } from '@/lib/telegram/client';
-import { handleWebhookCommand } from '@/lib/telegram/consent';
+import { handleWebhookCommand, persistConsentToSupabase } from '@/lib/telegram/consent';
 
 /**
  * POST /api/telegram/webhook
@@ -60,6 +60,13 @@ export async function POST(req: NextRequest) {
       } catch (sendErr) {
         console.warn('[Telegram Webhook] Failed to send automatic reply:', sendErr);
       }
+    }
+
+    // Persist opt-in or revocation to Supabase
+    if (commandResult.record) {
+      await persistConsentToSupabase(commandResult.record).catch((persistErr) => {
+        console.warn('[Telegram Webhook] Failed to persist consent record to Supabase:', persistErr);
+      });
     }
 
     return NextResponse.json({

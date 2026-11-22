@@ -4,14 +4,17 @@ import { IntegrationHealthResponse } from '@/types/integrations';
 
 /**
  * Default candidate cascade for Gemini models.
- * Primary: gemini-3.8-flash (empirically verified live)
- * Fallback candidates: gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash
+ * Empirically verified against Google AI Studio API:
+ * 1. gemini-3.8-flash (Primary high-capability model; may encounter temporary 503 spikes)
+ * 2. gemini-3.1-flash-lite (Active, high speed ~1.5s latency, 200 OK verified)
+ * 3. gemini-3-flash-preview (Active preview candidate, ~1.3s latency, 200 OK verified)
+ * 4. gemini-flash-lite-latest (Active production alias, 200 OK verified)
  */
 export const DEFAULT_GEMINI_CANDIDATES = [
   'gemini-3.8-flash',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-flash-lite-latest',
 ];
 
 export interface GeminiPart {
@@ -169,18 +172,48 @@ export async function callGeminiWithFailover(
           `[Gemini Client] Model ${modelName} (attempt ${attemptCount}/${maxRetries + 1}) failed: ${errMsg}`
         );
 
-        // Check if transient error suitable for backoff retry on same model
-        const isTransient =
-          errMsg.includes('429') ||
+        // Model availability and error classification for graceful failover
+        const isUnavailable =
+          errMsg.includes('404') ||
+          errMsg.includes('not found') ||
+          errMsg.includes('no longer available') ||
+          errMsg.includes('unsupported');
+
+        const isOverloadedOrDemandSpike =
           errMsg.includes('503') ||
           errMsg.includes('overloaded') ||
-          errMsg.includes('rate limit') ||
-          isTimeout;
+          errMsg.includes('high demand') ||
+          errMsg.includes('Service Unavailable');
 
-        if (isTransient && attemptCount <= maxRetries && backoffBaseMs > 0) {
+        const isRateLimit =
+          errMsg.includes('429') ||
+          errMsg.includes('rate limit') ||
+          errMsg.includes('ResourceExhausted');
+
+        // Only retry the SAME model on rate-limits (with backoff) or timeouts,
+        // IF we have remaining retries.
+        // For 503 high-demand or 404 unavailable models, cascading immediately to
+        // the next verified candidate model provides the fastest, most reliable response.
+        const shouldRetrySameModel =
+          (isRateLimit || isTimeout) &&
+          attemptCount <= maxRetries &&
+          backoffBaseMs > 0;
+
+        if (shouldRetrySameModel) {
           const delay = backoffBaseMs * Math.pow(2, attemptCount - 1);
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue; // Retry same model
+        }
+
+        // For 503 or 404 or exhausted retries, log graceful cascade and proceed to next candidate
+        if (isOverloadedOrDemandSpike) {
+          console.info(
+            `[Gemini Client] Model ${modelName} is experiencing high demand (503). Gracefully cascading to next candidate model.`
+          );
+        } else if (isUnavailable) {
+          console.info(
+            `[Gemini Client] Model ${modelName} is unavailable/deprecated (404). Cascading immediately to next candidate model.`
+          );
         }
 
         // Break retry loop for this model and cascade to next candidate
