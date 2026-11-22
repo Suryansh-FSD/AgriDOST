@@ -19,6 +19,16 @@ import { BoundaryTreePlanner } from '@/components/operations/BoundaryTreePlanner
 import { ActivityReminders, SupplyManager } from '@/components/supplies';
 import { DroneSprayPlanner } from '@/components/drone';
 
+// Subagent 4: Government Assistance & Schemes
+import { GovernmentAssistanceModule } from '@/components/schemes';
+
+// AgriDOST 4.0: n8n Automation Center
+import { AutomationCenter } from '@/components/automation';
+
+// AgriDOST 4.0: Market Intelligence & Telegram Notifications
+import { MarketIntelligenceModule } from '@/components/market';
+import { TelegramAlertCenter } from '@/components/telegram';
+
 import { 
   TreePine, 
   Clock, 
@@ -29,7 +39,7 @@ export default function Home() {
   const [view, setView] = useState<'landing' | 'app'>('landing');
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [operationsSubTab, setOperationsSubTab] = useState<'trees' | 'tasks' | 'supplies'>('trees');
-  const { activeFarm, refresh } = useFarmData();
+  const { farms, activeFarm, refresh } = useFarmData();
 
   if (view === 'landing') {
     return (
@@ -170,6 +180,43 @@ export default function Home() {
           <DroneSprayPlanner
             farm={activeFarm}
             onOperationSaved={refresh}
+          />
+        </div>
+      )}
+
+      {/* 7. Government Assistance & Schemes */}
+      {currentTab === 'schemes' && (
+        <div className="space-y-6">
+          <GovernmentAssistanceModule
+            activeFarm={activeFarm}
+            farms={farms}
+          />
+        </div>
+      )}
+
+      {/* 8. n8n Automation Center */}
+      {currentTab === 'automation' && (
+        <div className="space-y-6">
+          <AutomationCenter
+            farm={activeFarm}
+          />
+        </div>
+      )}
+
+      {/* 9. Market Intelligence & Mandi Pricing */}
+      {currentTab === 'market' && (
+        <div className="space-y-6">
+          <MarketIntelligenceModule
+            farm={activeFarm}
+          />
+        </div>
+      )}
+
+      {/* 10. Telegram Farmer Notification Center */}
+      {currentTab === 'telegram' && (
+        <div className="space-y-6">
+          <TelegramAlertCenter
+            farm={activeFarm}
           />
         </div>
       )}

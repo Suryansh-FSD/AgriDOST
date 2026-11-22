@@ -20,7 +20,9 @@ import {
   Sparkles,
   ChevronRight,
   TrendingUp,
-  FileCheck2
+  FileCheck2,
+  Landmark,
+  Workflow
 } from 'lucide-react';
 import { NavTab } from '../layout/Sidebar';
 
@@ -101,6 +103,30 @@ export function LandingPage({ onLaunchApp }: LandingPageProps) {
       badge: 'Precision Flight',
       cta: 'Configure Drone Spray',
       highlights: ['Dynamic wind drift safety index', 'Mandatory human verification gate', 'QGroundControl & DJI Agras GeoJSON'],
+    },
+    {
+      id: 'schemes' as NavTab,
+      number: '07',
+      title: 'Government Assistance & Schemes',
+      subtitle: 'Verified Central & State agricultural schemes, eligibility & tracker.',
+      description:
+        'Discover authentic schemes (PM-KISAN, PMFBY, PM-KUSUM, AIF, State DBT), evaluate deterministic eligibility against your farm profile, track missing documents, and manage application milestones offline.',
+      icon: Landmark,
+      badge: 'Verified Schemes',
+      cta: 'Explore Government Schemes',
+      highlights: ['100% verified official portals', 'Deterministic non-LLM eligibility engine', 'Offline application tracker & reminders'],
+    },
+    {
+      id: 'automation' as NavTab,
+      number: '08',
+      title: 'Autonomous n8n Automations',
+      subtitle: 'Event-driven farm workflows with cryptographic webhook security.',
+      description:
+        'Automate deadline reminders, drone spray weather validation, and mandi commodity pricing through production n8n workflows with HMAC-SHA256 signature verification and 24-hour idempotency protection.',
+      icon: Workflow,
+      badge: 'n8n Workflows',
+      cta: 'Open Automation Center',
+      highlights: ['HMAC-SHA256 signed webhooks', 'CIBRC spray safety guardrails', 'Agmarknet/e-NAM price advisories'],
     },
   ];
 

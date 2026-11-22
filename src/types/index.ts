@@ -219,3 +219,20 @@ export interface SprayOperation {
   notes?: string;
   isDemo?: boolean;
 }
+
+// Government Schemes & Farmer Assistance Contracts
+export * from './schemes';
+
+// n8n Integration & Event-Driven Automation Contracts
+export * from './n8n';
+
+// AgriDOST 4.0 Standard Integration Health Contracts
+export * from './integrations';
+
+// Market Intelligence & Mandi Contracts
+export * from './market';
+
+// Telegram Bot Integration Contracts
+export * from './telegram';
+
+

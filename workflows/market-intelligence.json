@@ -1,0 +1,160 @@
+{
+  "name": "AgriDOST: Market Intelligence & Mandi Price Advisory",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-morning-8am",
+      "name": "Schedule Trigger (Daily 8:00 AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 280]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agridost-market-intelligence",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-webhook-market-trigger",
+      "name": "Webhook: Market Intelligence Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 480],
+      "webhookId": "agridost-market-intelligence"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mandi Price Comparator Node (Deterministic Price Rules & Robust Envelope Unwrapping)\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n\n  // Robust multi-format envelope unwrapping:\n  // 1. Webhook body envelope: data.body?.payload || data.body\n  // 2. Direct envelope: data.payload\n  // 3. Flat payload: data\n  const rawBody = (data.body && typeof data.body === 'object') ? data.body : null;\n  const payload = (rawBody && rawBody.payload && typeof rawBody.payload === 'object')\n    ? rawBody.payload\n    : (data.payload && typeof data.payload === 'object' && !data.headers)\n      ? data.payload\n      : (rawBody || data);\n\n  const eventId = rawBody?.eventId || data.eventId || ('evt_mkt_' + Date.now());\n  const eventType = rawBody?.eventType || data.eventType || 'market.price.check_requested';\n  const farmId = rawBody?.farmId || data.farmId || 'demo-farm-01';\n  const farmerId = rawBody?.farmerId || data.farmerId || 'demo-farmer-01';\n\n  // Extract prices supporting canonical and legacy field names\n  const rawCurrent = payload.currentMandiPriceInrPerQtl ?? payload.currentPriceModal ?? payload.modalPriceInrPerQtl ?? payload.currentPrice;\n  const rawTarget = payload.farmerTargetPriceInrPerQtl ?? payload.farmerTargetPrice ?? payload.targetPrice;\n  const rawMsp = payload.minSupportPriceInrPerQtl ?? payload.mspPrice ?? payload.minSupportPrice;\n  const rawMin = payload.minPriceInrPerQtl ?? payload.minPrice;\n  const rawMax = payload.maxPriceInrPerQtl ?? payload.maxPrice;\n\n  const commodity = payload.commodityName || payload.commodity || 'Produce';\n  const mandi = payload.targetMandi || payload.mandiName || payload.mandi || 'Local Mandi';\n  const state = payload.state || 'All-India';\n  const priceSource = payload.priceDataSource || payload.dataSource || 'Agmarknet (Govt of India)';\n  const observationDate = payload.priceObservationDate || new Date().toISOString();\n  const trend7Days = payload.trend7DaysPct !== undefined && !isNaN(Number(payload.trend7DaysPct)) ? Number(payload.trend7DaysPct) : 0;\n\n  // Validate price availability: Do not silently replace missing/invalid price with ₹0!\n  const hasValidCurrentPrice = rawCurrent !== undefined && rawCurrent !== null && !isNaN(Number(rawCurrent)) && Number(rawCurrent) > 0;\n  const currentPrice = hasValidCurrentPrice ? Number(rawCurrent) : null;\n  const targetPrice = (rawTarget !== undefined && rawTarget !== null && !isNaN(Number(rawTarget)) && Number(rawTarget) > 0) ? Number(rawTarget) : null;\n  const mspPrice = (rawMsp !== undefined && rawMsp !== null && !isNaN(Number(rawMsp)) && Number(rawMsp) > 0) ? Number(rawMsp) : null;\n  const minPrice = (rawMin !== undefined && rawMin !== null && !isNaN(Number(rawMin))) ? Number(rawMin) : null;\n  const maxPrice = (rawMax !== undefined && rawMax !== null && !isNaN(Number(rawMax))) ? Number(rawMax) : null;\n\n  let recommendation = '';\n  let rationale = '';\n  let actionType = '';\n  let status = 'success';\n\n  if (!hasValidCurrentPrice) {\n    actionType = 'DATA UNAVAILABLE';\n    status = 'failed';\n    recommendation = `Current market price data for ${commodity} at ${mandi} is currently unavailable from ${priceSource}.`;\n    rationale = 'Cannot generate deterministic sell/hold advisory without authenticated current mandi price. Please verify Agmarknet/e-NAM price observation feed.';\n  } else if (mspPrice && currentPrice < mspPrice) {\n    actionType = 'MSP ALERT / HOLD';\n    recommendation = `Current market price (₹${currentPrice}/qtl) is below Government Minimum Support Price (MSP: ₹${mspPrice}/qtl). Do not distress-sell in open mandi.`;\n    rationale = `Register at nearest designated official MSP procurement center / NAFED / FCI center to realize guaranteed MSP of ₹${mspPrice}/qtl.`;\n  } else if (targetPrice && currentPrice >= targetPrice * 1.05) {\n    actionType = 'SELL RECOMMENDED';\n    const gainPct = (((currentPrice - targetPrice) / targetPrice) * 100).toFixed(1);\n    recommendation = `Current price of ₹${currentPrice}/qtl exceeds your target price (₹${targetPrice}/qtl) by ${gainPct}%. Peak price window active.`;\n    rationale = `Favorable selling window at ${mandi}. Recommend executing sale of available inventory.`;\n  } else if (targetPrice && currentPrice >= targetPrice) {\n    actionType = 'PARTIAL SELL (50%)';\n    recommendation = `Current price of ₹${currentPrice}/qtl has reached your target price (₹${targetPrice}/qtl).`;\n    rationale = `Recommend liquidating 50% of stock to lock in target profit, while holding remaining 50% if prices rally further.`;\n  } else if (trend7Days > 0) {\n    actionType = 'HOLD (Price trending upward)';\n    recommendation = `Current price (₹${currentPrice}/qtl) is below target (₹${targetPrice || 'N/A'}/qtl), but 7-day trend is upward (+${trend7Days}%).`;\n    rationale = `Hold stored stock as price momentum indicates upward recovery across regional mandis.`;\n  } else {\n    actionType = 'HOLD (Market below target price)';\n    recommendation = `Current price (₹${currentPrice}/qtl) is below target (₹${targetPrice || 'N/A'}/qtl) with ${trend7Days <= 0 ? `${trend7Days}%` : 'flat'} trend.`;\n    rationale = `Hold stock in safe storage / warehouse receipt financing until demand improves.`;\n  }\n\n  const safetyDisclaimer = 'AgriDOST market recommendations are strictly advisory based on published APMC/Agmarknet data. AgriDOST never executes autonomous financial trades or commodity sales. Farmer retains exclusive selling authority.';\n\n  results.push({\n    json: {\n      eventId,\n      eventType,\n      farmId,\n      farmerId,\n      status,\n      evaluation: {\n        commodity,\n        targetMandi: mandi,\n        state,\n        currentPrice,\n        minPrice,\n        maxPrice,\n        targetPrice,\n        mspPrice,\n        trend7DaysPct: trend7Days,\n        actionType,\n        recommendation,\n        rationale,\n        attribution: {\n          source: priceSource,\n          timestamp: observationDate\n        },\n        safetyDisclaimer,\n        evaluatedAt: new Date().toISOString()\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "node-mandi-price-comparator",
+      "name": "Mandi Price Comparator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Notification Builder Node (Creates bilingual farmer advisory card & signs HMAC callback)\nconst crypto = require('crypto');\nconst items = $input.all();\nconst results = [];\nconst secret = $env.N8N_WEBHOOK_SECRET || 'agridost_hmac_webhook_signing_secret_2026';\nconst baseAppUrl = ($env.AGRIDOST_APP_URL || $env.NEXT_PUBLIC_APP_URL || 'http://host.docker.internal:3000').replace(/\\/$/, '');\n\nfor (const item of items) {\n  const data = item.json;\n  const evalData = data.evaluation || {};\n\n  const commodity = evalData.commodity || 'Produce';\n  const action = evalData.actionType || 'HOLD';\n  const currentPrice = evalData.currentPrice;\n  const targetPrice = evalData.targetPrice;\n  const mspPrice = evalData.mspPrice;\n  const mandi = evalData.targetMandi || 'APMC';\n  const source = evalData.attribution?.source || 'Agmarknet (Govt of India)';\n\n  // Construct Hindi translation\n  let actionHi = '';\n  let adviceHi = '';\n  if (action === 'DATA UNAVAILABLE') {\n    actionHi = 'डेटा अनुपलब्ध';\n    adviceHi = `${commodity} के लिए ${mandi} में वर्तमान मूल्य डेटा उपलब्ध नहीं है।`;\n  } else if (action === 'SELL RECOMMENDED') {\n    actionHi = 'बिक्री की सिफारिश (मजबूत मूल्य)';\n    adviceHi = `${commodity} का वर्तमान मंडी भाव (₹${currentPrice}/क्विंटल) आपके लक्ष्य मूल्य (₹${targetPrice}) से अधिक है। ${mandi} में फसल बेचने का उत्तम अवसर है।`;\n  } else if (action === 'PARTIAL SELL (50%)') {\n    actionHi = 'आंशिक बिक्री (50% बेचें)';\n    adviceHi = `${commodity} का भाव आपके लक्ष्य मूल्य ₹${targetPrice}/क्विंटल पर पहुंच गया है। 50% उपज बेचकर लाभ सुरक्षित करें और शेष 50% को रोके रखें।`;\n  } else if (action === 'HOLD (Price trending upward)') {\n    actionHi = 'रोक कर रखें (मूल्य में बढ़ोतरी का रुझान)';\n    adviceHi = `${commodity} का भाव अभी लक्ष्य से कम है परंतु पिछले 7 दिनों में भाव बढ़ रहा है (+${evalData.trend7DaysPct}%)। बेहतर भाव के लिए प्रतीक्षा करें।`;\n  } else if (action === 'MSP ALERT / HOLD') {\n    actionHi = 'एमएसपी चेतावनी (खुली मंडी में न बेचें)';\n    adviceHi = `${commodity} का मंडी भाव (₹${currentPrice}) सरकारी न्यूनतम समर्थन मूल्य (₹${mspPrice}) से कम है। कृपया निकटतम सरकारी खरीद केंद्र पर पंजीकरण कराएं।`;\n  } else {\n    actionHi = 'रोक कर रखें (बाजार भाव कम)';\n    adviceHi = `${commodity} का भाव आपके लक्ष्य मूल्य से नीचे है। अभी उपज सुरक्षित भंडारण में रखें।`;\n  }\n\n  const notificationCard = {\n    title: {\n      en: `Market Alert: ${commodity} - ${action}`,\n      hi: `मंडी सूचना: ${commodity} - ${actionHi}`\n    },\n    message: {\n      en: evalData.recommendation,\n      hi: adviceHi\n    },\n    actionRequired: action,\n    priceSummary: {\n      currentPriceInrPerQtl: currentPrice,\n      farmerTargetPriceInrPerQtl: targetPrice,\n      mspInrPerQtl: mspPrice,\n      mandiName: mandi,\n      dataSource: source,\n      observationDate: evalData.attribution?.timestamp\n    },\n    safetyNotice: evalData.safetyDisclaimer\n  };\n\n  const timestamp = new Date().toISOString();\n  const isFailed = action === 'DATA UNAVAILABLE';\n  const callbackPayload = {\n    eventId: data.eventId,\n    workflowId: 'market-intelligence',\n    status: isFailed ? 'failed' : 'success',\n    outputSummary: `${action}: ${commodity} @ ${currentPrice !== null ? `₹${currentPrice}/qtl` : 'Unavailable'} (${mandi}) [Source: ${source}]`,\n    outputData: {\n      evaluation: evalData,\n      notification: notificationCard,\n      priceSummary: notificationCard.priceSummary\n    },\n    completedAt: timestamp\n  };\n\n  const rawBody = JSON.stringify(callbackPayload);\n  const signature = crypto\n    .createHmac('sha256', secret)\n    .update(`${timestamp}.${rawBody}`)\n    .digest('hex');\n\n  const signatureHeader = `t=${timestamp},v1=${signature}`;\n  const callbackUrl = `${baseAppUrl}/api/n8n/callback`;\n\n  results.push({\n    json: {\n      ...data,\n      notification: notificationCard,\n      callbackPayload,\n      callbackUrl,\n      rawBody,\n      signatureHeader,\n      sigTimestamp: timestamp,\n      outputSummary: callbackPayload.outputSummary\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "node-notification-builder",
+      "name": "Notification Builder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl || (($env.AGRIDOST_APP_URL || $env.NEXT_PUBLIC_APP_URL || 'http://host.docker.internal:3000').replace(/\\/$/, '') + '/api/n8n/callback') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-AgriDOST-Event-ID",
+              "value": "={{ $json.callbackPayload.eventId }}"
+            },
+            {
+              "name": "X-AgriDOST-Timestamp",
+              "value": "={{ $json.sigTimestamp }}"
+            },
+            {
+              "name": "X-AgriDOST-Signature",
+              "value": "={{ $json.signatureHeader }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.callbackPayload) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "node-http-callback",
+      "name": "POST Callback to AgriDOST",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 380]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Daily 8:00 AM)": {
+      "main": [
+        [
+          {
+            "node": "Mandi Price Comparator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Market Intelligence Trigger": {
+      "main": [
+        [
+          {
+            "node": "Mandi Price Comparator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mandi Price Comparator": {
+      "main": [
+        [
+          {
+            "node": "Notification Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification Builder": {
+      "main": [
+        [
+          {
+            "node": "POST Callback to AgriDOST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "market-intelligence-v1",
+  "id": "market-intelligence",
+  "meta": {
+    "instanceId": "agridost-n8n-instance-01"
+  },
+  "tags": [
+    {
+      "name": "AgriDOST"
+    },
+    {
+      "name": "Market Intelligence"
+    },
+    {
+      "name": "APMC Mandi"
+    }
+  ]
+}

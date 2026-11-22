@@ -1,0 +1,319 @@
+{
+  "name": "AgriDOST - Government Assistance Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agridost-government-assistance",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook: Government Assistance",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "agridost-gov-webhook-01"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body?.eventType || $json.eventType }}",
+                    "rightValue": "government.application.created",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body?.eventType || $json.eventType }}",
+                    "rightValue": "government.application.status_changed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body?.eventType || $json.eventType }}",
+                    "rightValue": "government.deadline.approaching",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body?.eventType || $json.eventType }}",
+                    "rightValue": "government.reminder.triggered",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        }
+      },
+      "id": "node-switch",
+      "name": "Switch: Route Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json.body || item.json;\n  const payload = data.payload || {};\n  const isGovVerified = payload.statusSource === 'government_verified';\n  \n  const disclaimer = isGovVerified\n    ? 'Verified against official government portal records.'\n    : 'Status is self-reported by applicant and does NOT constitute official government confirmation or approval.';\n\n  const enTitle = `Application Drafted: ${payload.schemeName}`;\n  const enMsg = `Hello ${payload.farmerName || 'Farmer'}, your application draft for ${payload.schemeName} (Ref: ${payload.referenceNumber || 'Pending'}) is created. Action required: ${payload.actionRequired}. Official portal: ${payload.officialPortalUrl}`;\n\n  const hiTitle = `आवेदन दर्ज: ${payload.schemeName}`;\n  const hiMsg = `नमस्ते ${payload.farmerName || 'किसान भाई'}, ${payload.schemeName} (संदर्भ: ${payload.referenceNumber || 'प्रक्रियाधीन'}) के लिए आपका आवेदन तैयार है। आवश्यक कार्यवाही: ${payload.actionRequired}। आधिकारिक पोर्टल: ${payload.officialPortalUrl}`;\n\n  return {\n    json: {\n      ...data,\n      processed: {\n        eventType: 'government.application.created',\n        priority: 'MEDIUM',\n        daysRemaining: null,\n        statusSource: payload.statusSource || 'user_reported',\n        isGovernmentVerified: isGovVerified,\n        statusDisclaimer: disclaimer,\n        notifications: {\n          en: {\n            title: enTitle,\n            sms: enMsg,\n            whatsapp: `*${enTitle}*\\n\\n${enMsg}\\n\\n*Disclaimer:* ${disclaimer}`,\n            push: enMsg\n          },\n          hi: {\n            title: hiTitle,\n            sms: hiMsg,\n            whatsapp: `*${hiTitle}*\\n\\n${hiMsg}\\n\\n*सूचना:* ${disclaimer}`,\n            push: hiMsg\n          }\n        }\n      }\n    }\n  };\n});"
+      },
+      "id": "node-code-app-created",
+      "name": "Code: Application Created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json.body || item.json;\n  const payload = data.payload || {};\n  const isGovVerified = payload.statusSource === 'government_verified';\n  \n  // Strict Status Badge Integrity\n  const disclaimer = isGovVerified\n    ? 'Verified against official government portal records.'\n    : 'Status is self-reported by applicant and does NOT constitute official government confirmation or final sanction.';\n\n  const badge = isGovVerified ? '[Official Update]' : '[Self-Reported]';\n  const badgeHi = isGovVerified ? '[आधिकारिक अपडेट]' : '[स्व-रिपोर्टित]';\n  const priority = isGovVerified ? 'HIGH' : 'MEDIUM';\n\n  const enTitle = `${badge} ${payload.schemeName}: Status Changed to ${payload.currentStatus}`;\n  const enMsg = `${badge} Application for ${payload.schemeName} (Ref: ${payload.referenceNumber || 'N/A'}) is now marked as ${payload.currentStatus}. ${disclaimer} Next Step: ${payload.actionRequired}`;\n\n  const hiTitle = `${badgeHi} ${payload.schemeName}: स्थिति बदलकर ${payload.currentStatus} हुई`;\n  const hiMsg = `${badgeHi} ${payload.schemeName} (संदर्भ: ${payload.referenceNumber || 'उपलब्ध नहीं'}) का आवेदन अब ${payload.currentStatus} है। ${isGovVerified ? 'सरकारी पोर्टल द्वारा सत्यापित।' : 'आवेदक द्वारा स्व-रिपोर्टित (आधिकारिक स्वीकृति प्रतीक्षित)।'} अगला कदम: ${payload.actionRequired}`;\n\n  return {\n    json: {\n      ...data,\n      processed: {\n        eventType: 'government.application.status_changed',\n        priority,\n        daysRemaining: null,\n        statusSource: payload.statusSource || 'user_reported',\n        isGovernmentVerified: isGovVerified,\n        statusDisclaimer: disclaimer,\n        notifications: {\n          en: {\n            title: enTitle,\n            sms: enMsg,\n            whatsapp: `*${enTitle}*\\n\\n${enMsg}\\n\\n*Official Portal:* ${payload.officialPortalUrl}`,\n            push: enMsg\n          },\n          hi: {\n            title: hiTitle,\n            sms: hiMsg,\n            whatsapp: `*${hiTitle}*\\n\\n${hiMsg}\\n\\n*आधिकारिक पोर्टल:* ${payload.officialPortalUrl}`,\n            push: hiMsg\n          }\n        }\n      }\n    }\n  };\n});"
+      },
+      "id": "node-code-status-changed",
+      "name": "Code: Status Changed & Integrity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json.body || item.json;\n  const payload = data.payload || {};\n  const deadlineDateStr = payload.deadlineDate || payload.reminderDueDate;\n  const now = new Date(data.timestamp || Date.now());\n  \n  let daysRemaining = null;\n  let priority = 'MEDIUM';\n\n  if (deadlineDateStr) {\n    const deadline = new Date(deadlineDateStr);\n    const diffMs = deadline.getTime() - now.getTime();\n    daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));\n    \n    // Deadline proximity calculation: <= 7 days triggers CRITICAL priority\n    if (daysRemaining <= 7) {\n      priority = 'CRITICAL';\n    } else if (daysRemaining <= 14) {\n      priority = 'HIGH';\n    } else {\n      priority = 'MEDIUM';\n    }\n  }\n\n  const urgencyPrefix = priority === 'CRITICAL' ? '🚨 CRITICAL DEADLINE' : '⏰ DEADLINE ALERT';\n  const urgencyPrefixHi = priority === 'CRITICAL' ? '🚨 अति महत्वपूर्ण अंतिम तिथि' : '⏰ समय सीमा सूचना';\n\n  const enTitle = `${urgencyPrefix}: ${payload.schemeName} (${daysRemaining} days left)`;\n  const enMsg = `URGENT: Only ${daysRemaining} days remaining until deadline (${deadlineDateStr}) for ${payload.schemeName}. Complete your submission at ${payload.officialPortalUrl || 'the official portal'}. Action: ${payload.actionRequired}`;\n\n  const hiTitle = `${urgencyPrefixHi}: ${payload.schemeName} (केवल ${daysRemaining} दिन शेष)`;\n  const hiMsg = `महत्वपूर्ण: ${payload.schemeName} की अंतिम तिथि (${deadlineDateStr}) में केवल ${daysRemaining} दिन बाकी हैं। तुरंत पोर्टल पर आवेदन पूरा करें: ${payload.officialPortalUrl || 'आधिकारिक पोर्टल'}। कार्यवाही: ${payload.actionRequired}`;\n\n  const isGovVerified = payload.statusSource === 'government_verified';\n  const disclaimer = isGovVerified\n    ? 'Verified deadline from official government gazette/portal.'\n    : 'Indicative deadline based on published scheme calendar.';\n\n  return {\n    json: {\n      ...data,\n      processed: {\n        eventType: 'government.deadline.approaching',\n        priority,\n        daysRemaining,\n        statusSource: payload.statusSource || 'user_reported',\n        isGovernmentVerified: isGovVerified,\n        statusDisclaimer: disclaimer,\n        notifications: {\n          en: {\n            title: enTitle,\n            sms: enMsg,\n            whatsapp: `*${enTitle}*\\n\\n${enMsg}\\n\\n*Portal Link:* ${payload.officialPortalUrl}`,\n            push: enMsg\n          },\n          hi: {\n            title: hiTitle,\n            sms: hiMsg,\n            whatsapp: `*${hiTitle}*\\n\\n${hiMsg}\\n\\n*पोर्टल लिंक:* ${payload.officialPortalUrl}`,\n            push: hiMsg\n          }\n        }\n      }\n    }\n  };\n});"
+      },
+      "id": "node-code-deadline-proximity",
+      "name": "Code: Deadline Proximity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json.body || item.json;\n  const payload = data.payload || {};\n  const dueDateStr = payload.reminderDueDate || payload.deadlineDate;\n  const now = new Date(data.timestamp || Date.now());\n  \n  let daysRemaining = null;\n  let priority = 'MEDIUM';\n\n  if (dueDateStr) {\n    const dueDate = new Date(dueDateStr);\n    const diffMs = dueDate.getTime() - now.getTime();\n    daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));\n    if (daysRemaining <= 7) {\n      priority = 'CRITICAL';\n    } else if (daysRemaining <= 14) {\n      priority = 'HIGH';\n    }\n  }\n\n  const enTitle = `Reminder: ${payload.reminderTitle || payload.schemeName}`;\n  const enMsg = `Reminder for ${payload.schemeName}: ${payload.reminderTitle || 'Pending task'}. Due date: ${dueDateStr || 'Soon'}. Action: ${payload.actionRequired}`;\n\n  const hiTitle = `स्मरण पत्र: ${payload.reminderTitle || payload.schemeName}`;\n  const hiMsg = `${payload.schemeName} के लिए रिमाइंडर: ${payload.reminderTitle || 'लंबित कार्य'}। नियत तिथि: ${dueDateStr || 'शीघ्र'}। कार्यवाही: ${payload.actionRequired}`;\n\n  return {\n    json: {\n      ...data,\n      processed: {\n        eventType: 'government.reminder.triggered',\n        priority,\n        daysRemaining,\n        statusSource: payload.statusSource || 'user_reported',\n        isGovernmentVerified: payload.statusSource === 'government_verified',\n        statusDisclaimer: 'Action reminder scheduled by farmer / AgriDOST assistant.',\n        notifications: {\n          en: {\n            title: enTitle,\n            sms: enMsg,\n            whatsapp: `*${enTitle}*\\n\\n${enMsg}\\n\\n*Portal:* ${payload.officialPortalUrl}`,\n            push: enMsg\n          },\n          hi: {\n            title: hiTitle,\n            sms: hiMsg,\n            whatsapp: `*${hiTitle}*\\n\\n${hiMsg}\\n\\n*पोर्टल:* ${payload.officialPortalUrl}`,\n            push: hiMsg\n          }\n        }\n      }\n    }\n  };\n});"
+      },
+      "id": "node-code-reminder-triggered",
+      "name": "Code: Reminder Triggered",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 540]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst items = $input.all();\nconst secret = $env.N8N_WEBHOOK_SECRET || 'agridost_hmac_webhook_signing_secret_2026';\nconst baseAppUrl = ($env.AGRIDOST_APP_URL || $env.NEXT_PUBLIC_APP_URL || 'http://host.docker.internal:3000').replace(/\\/$/, '');\n\nreturn items.map(item => {\n  const data = item.json;\n  const processed = data.processed || {};\n  const payload = (data.body && data.body.payload) || data.payload || {};\n  const eventId = (data.body && data.body.eventId) || data.eventId || `evt_${Date.now()}`;\n  const eventType = processed.eventType || (data.body && data.body.eventType) || data.eventType || 'government.application.created';\n  const timestamp = new Date().toISOString();\n\n  const callbackPayload = {\n    eventId,\n    workflowId: 'government-assistance',\n    status: 'success',\n    outputSummary: `Government Scheme ${eventType}: Status is ${processed.statusSource || payload.statusSource || 'user_reported'}`,\n    outputData: {\n      priority: processed.priority || 'MEDIUM',\n      daysRemaining: processed.daysRemaining,\n      statusSource: processed.statusSource || payload.statusSource || 'user_reported',\n      isGovernmentVerified: Boolean(processed.isGovernmentVerified),\n      statusDisclaimer: processed.statusDisclaimer || 'Indicative government assistance event.',\n      notifications: processed.notifications || {},\n      farmerId: (data.body && data.body.farmerId) || data.farmerId || 'unknown-farmer',\n      farmId: (data.body && data.body.farmId) || data.farmId || 'unknown-farm',\n      idempotencyKey: (data.body && data.body.idempotencyKey) || data.idempotencyKey || `gov:${Date.now()}`,\n      processedAt: timestamp\n    },\n    completedAt: timestamp\n  };\n\n  const rawBody = JSON.stringify(callbackPayload);\n  const signature = crypto\n    .createHmac('sha256', secret)\n    .update(`${timestamp}.${rawBody}`)\n    .digest('hex');\n\n  const signatureHeader = `t=${timestamp},v1=${signature}`;\n  const callbackUrl = (data.body && data.body.callbackUrl) || data.callbackUrl || `${baseAppUrl}/api/n8n/callback`;\n\n  return {\n    json: {\n      callbackUrl,\n      callbackPayload,\n      rawBody,\n      signatureHeader,\n      sigTimestamp: timestamp,\n      eventId\n    }\n  };\n});"
+      },
+      "id": "node-code-assemble-callback",
+      "name": "Code: Assemble Callback Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl || (($env.AGRIDOST_APP_URL || $env.NEXT_PUBLIC_APP_URL || 'http://host.docker.internal:3000').replace(/\\/$/, '') + '/api/n8n/callback') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-AgriDOST-Event-ID",
+              "value": "={{ $json.eventId }}"
+            },
+            {
+              "name": "X-AgriDOST-Timestamp",
+              "value": "={{ $json.sigTimestamp }}"
+            },
+            {
+              "name": "X-AgriDOST-Signature",
+              "value": "={{ $json.signatureHeader }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.callbackPayload) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "node-http-callback",
+      "name": "HTTP Request: Callback to AgriDOST",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Government Assistance": {
+      "main": [
+        [
+          {
+            "node": "Switch: Route Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Route Event Type": {
+      "main": [
+        [
+          {
+            "node": "Code: Application Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Status Changed & Integrity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Deadline Proximity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Reminder Triggered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Application Created": {
+      "main": [
+        [
+          {
+            "node": "Code: Assemble Callback Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Status Changed & Integrity": {
+      "main": [
+        [
+          {
+            "node": "Code: Assemble Callback Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Deadline Proximity": {
+      "main": [
+        [
+          {
+            "node": "Code: Assemble Callback Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Reminder Triggered": {
+      "main": [
+        [
+          {
+            "node": "Code: Assemble Callback Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Assemble Callback Payload": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Callback to AgriDOST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "id": "government-assistance",
+  "meta": {
+    "instanceId": "agridost-n8n-instance-01",
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    {
+      "name": "agridost"
+    },
+    {
+      "name": "government-assistance"
+    }
+  ]
+}

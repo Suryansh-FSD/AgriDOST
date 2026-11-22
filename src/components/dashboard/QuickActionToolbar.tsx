@@ -8,11 +8,16 @@ import {
   Plane, 
   TreePine, 
   RotateCcw,
-  Sparkles 
+  Sparkles,
+  Landmark,
+  Workflow,
+  TrendingUp,
+  Send
 } from 'lucide-react';
+import { NavTab } from '../layout/Sidebar';
 
 interface QuickActionToolbarProps {
-  onNavigateToTab: (tab: 'mapping' | 'planner' | 'health' | 'operations' | 'drone') => void;
+  onNavigateToTab: (tab: NavTab) => void;
   onResetDemo: () => void;
 }
 
@@ -56,6 +61,34 @@ export function QuickActionToolbar({
       onClick: () => onNavigateToTab('operations'),
       iconBg: 'bg-[#DCE8D3] text-[#173F2B]',
     },
+    {
+      label: 'Govt Schemes',
+      sub: 'Subsidies & assistance',
+      icon: Landmark,
+      onClick: () => onNavigateToTab('schemes'),
+      iconBg: 'bg-emerald-100 text-emerald-800',
+    },
+    {
+      label: 'Mandi Rates',
+      sub: 'Prices & MSP advice',
+      icon: TrendingUp,
+      onClick: () => onNavigateToTab('market'),
+      iconBg: 'bg-amber-100 text-amber-800',
+    },
+    {
+      label: 'Telegram Bot',
+      sub: 'Farmer alert alerts',
+      icon: Send,
+      onClick: () => onNavigateToTab('telegram'),
+      iconBg: 'bg-blue-100 text-blue-800',
+    },
+    {
+      label: 'Automations',
+      sub: 'n8n workflow hub',
+      icon: Workflow,
+      onClick: () => onNavigateToTab('automation'),
+      iconBg: 'bg-[#DCE8D3] text-[#173F2B]',
+    },
   ];
 
   return (
@@ -75,7 +108,7 @@ export function QuickActionToolbar({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-8">
         {actions.map((act, i) => {
           const Icon = act.icon;
           return (

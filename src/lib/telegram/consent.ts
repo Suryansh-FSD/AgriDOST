@@ -1,0 +1,365 @@
+/**
+ * AgriDOST 4.0: Farmer Consent & Opt-In Manager
+ *
+ * CRITICAL RULE: NEVER send notifications without explicit farmer consent!
+ * Every notification dispatch must verify that optInStatus === true for the farmerId.
+ *
+ * Manages:
+ * - /start <farmer_id> binding and opt-in consent
+ * - /stop or /unsubscribe immediate revocation
+ * - Language preference updates (/lang en|hi|mr)
+ * - Safe in-memory store with persistence fallback
+ */
+
+import {
+  FarmerConsentRecord,
+  SupportedLanguage,
+  TelegramChat,
+  TelegramUser,
+} from '@/types/telegram';
+
+// In-memory singleton store for farmer consents
+class ConsentStore {
+  private byFarmerId: Map<string, FarmerConsentRecord> = new Map();
+  private byChatId: Map<string, string> = new Map(); // chatId string -> farmerId
+
+  constructor() {
+    this.seedDefaultConsents();
+  }
+
+  private seedDefaultConsents() {
+    // Seed default demo farmer with active consent for seamless demo experience
+    const demoConsent: FarmerConsentRecord = {
+      farmerId: 'demo-farmer-01',
+      chatId: 1098765432,
+      username: 'demo_farmer_kisan',
+      optInStatus: true,
+      consentTimestamp: new Date().toISOString(),
+      languagePreference: 'hi',
+      metadata: { source: 'demo_seed' },
+    };
+    this.save(demoConsent);
+  }
+
+  public save(record: FarmerConsentRecord): FarmerConsentRecord {
+    const copy = { ...record };
+    this.byFarmerId.set(record.farmerId, copy);
+    this.byChatId.set(String(record.chatId), record.farmerId);
+    return copy;
+  }
+
+  public getByFarmerId(farmerId: string): FarmerConsentRecord | null {
+    const found = this.byFarmerId.get(farmerId);
+    return found ? { ...found } : null;
+  }
+
+  public getByChatId(chatId: number | string): FarmerConsentRecord | null {
+    const farmerId = this.byChatId.get(String(chatId));
+    if (!farmerId) return null;
+    return this.getByFarmerId(farmerId);
+  }
+
+  public revoke(identifier: { farmerId?: string; chatId?: number | string }): boolean {
+    let targetRecord: FarmerConsentRecord | null = null;
+
+    if (identifier.farmerId) {
+      targetRecord = this.getByFarmerId(identifier.farmerId);
+    } else if (identifier.chatId) {
+      targetRecord = this.getByChatId(identifier.chatId);
+    }
+
+    if (!targetRecord) return false;
+
+    targetRecord.optInStatus = false;
+    targetRecord.revokedTimestamp = new Date().toISOString();
+    this.save(targetRecord);
+    return true;
+  }
+
+  public list(): FarmerConsentRecord[] {
+    return Array.from(this.byFarmerId.values()).map((r) => ({ ...r }));
+  }
+
+  public clear(): void {
+    this.byFarmerId.clear();
+    this.byChatId.clear();
+  }
+}
+
+// Global singleton instance
+const globalConsentStore = new ConsentStore();
+
+/**
+ * Register or update explicit consent for a farmer.
+ */
+export function registerConsent(params: {
+  farmerId: string;
+  chatId: number | string;
+  username?: string;
+  languagePreference?: SupportedLanguage;
+  metadata?: Record<string, unknown>;
+}): FarmerConsentRecord {
+  const existing = globalConsentStore.getByFarmerId(params.farmerId);
+
+  const record: FarmerConsentRecord = {
+    farmerId: params.farmerId,
+    chatId: params.chatId,
+    username: params.username ?? existing?.username,
+    optInStatus: true,
+    consentTimestamp: new Date().toISOString(),
+    revokedTimestamp: null,
+    languagePreference: params.languagePreference ?? existing?.languagePreference ?? 'hi',
+    metadata: {
+      ...existing?.metadata,
+      ...params.metadata,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  return globalConsentStore.save(record);
+}
+
+/**
+ * Revoke consent for a farmer or chatId.
+ * After revocation, NO notifications will be delivered.
+ */
+export function revokeConsent(identifier: {
+  farmerId?: string;
+  chatId?: number | string;
+}): boolean {
+  return globalConsentStore.revoke(identifier);
+}
+
+/**
+ * Check whether a farmer has active explicit consent.
+ * Returns TRUE only if record exists and optInStatus === true.
+ */
+export function hasConsent(farmerId: string): boolean {
+  if (!farmerId) return false;
+  const record = globalConsentStore.getByFarmerId(farmerId);
+  return Boolean(record && record.optInStatus === true);
+}
+
+/**
+ * Get consent record by farmer ID.
+ */
+export function getConsentByFarmerId(farmerId: string): FarmerConsentRecord | null {
+  return globalConsentStore.getByFarmerId(farmerId);
+}
+
+/**
+ * Get consent record by Telegram chat ID.
+ */
+export function getConsentByChatId(chatId: number | string): FarmerConsentRecord | null {
+  return globalConsentStore.getByChatId(chatId);
+}
+
+/**
+ * Update preferred language for a farmer.
+ */
+export function updateLanguagePreference(
+  farmerId: string,
+  language: SupportedLanguage
+): boolean {
+  const record = globalConsentStore.getByFarmerId(farmerId);
+  if (!record) return false;
+
+  record.languagePreference = language;
+  globalConsentStore.save(record);
+  return true;
+}
+
+/**
+ * List all registered consent records.
+ */
+export function listConsents(): FarmerConsentRecord[] {
+  return globalConsentStore.list();
+}
+
+/**
+ * Clear all consents (used for isolated testing).
+ */
+export function clearConsentStore(): void {
+  globalConsentStore.clear();
+}
+
+export interface WebhookCommandResult {
+  handled: boolean;
+  replyText: string;
+  action: 'opt_in' | 'opt_out' | 'language_change' | 'status' | 'help' | 'unknown';
+  record?: FarmerConsentRecord;
+}
+
+/**
+ * Parse and process incoming Telegram bot commands (/start, /stop, /unsubscribe, /lang, /help, /status).
+ */
+export function handleWebhookCommand(
+  text: string,
+  fromUser: TelegramUser,
+  chat: TelegramChat
+): WebhookCommandResult {
+  const clean = (text || '').trim();
+
+  // 1. /start [<farmer_id>]
+  const startMatch = clean.match(/^\/start(?:\s+(.+))?$/i);
+  if (startMatch) {
+    const rawArg = startMatch[1]?.trim();
+    const farmerId = rawArg || `farmer_${chat.id}`;
+
+    const record = registerConsent({
+      farmerId,
+      chatId: chat.id,
+      username: fromUser.username,
+      languagePreference: 'hi',
+      metadata: {
+        source: 'telegram_bot_command',
+        firstName: fromUser.first_name,
+        lastName: fromUser.last_name,
+      },
+    });
+
+    const replyText = `🌾 <b>Welcome to AgriDOST Alerts! / एग्रीदोस्त में आपका स्वागत है!</b>
+
+✅ <b>Farmer Opt-In Confirmed / सहमति दर्ज हो गई है</b>
+• Farmer ID: <code>${farmerId}</code>
+• Chat ID: <code>${chat.id}</code>
+• Language: <b>Hindi / हिंदी</b>
+
+You will now receive timely, verified alerts:
+🌦️ Weather & Spray warnings (मौसम और छिड़काव सलाह)
+🌿 Crop Health & Pest Diagnoses (फसल रोग व कीट निदान)
+🏛️ Government Scheme Deadlines (सरकारी योजनाएं)
+📈 Mandi Price Targets (मंडी भाव अलर्ट)
+
+<b>Available Commands / उपलब्ध आदेश:</b>
+• /lang hi | en | mr - Change language / भाषा बदलें
+• /status - Check subscription / स्थिति देखें
+• /stop or /unsubscribe - Revoke consent anytime / सेवा बंद करें`;
+
+    return {
+      handled: true,
+      replyText,
+      action: 'opt_in',
+      record,
+    };
+  }
+
+  // 2. /stop or /unsubscribe
+  if (/^\/(stop|unsubscribe)/i.test(clean)) {
+    const existing = globalConsentStore.getByChatId(chat.id);
+    const farmerId = existing?.farmerId || `farmer_${chat.id}`;
+
+    revokeConsent({ chatId: chat.id });
+
+    const replyText = `🛑 <b>AgriDOST Alert Service Deactivated / सेवा बंद की गई</b>
+
+You have successfully revoked your consent for Farmer ID: <code>${farmerId}</code>.
+No further automated notifications will be sent to this Telegram account.
+
+आप एग्रीदोस्त अलर्ट सेवा से हट चुके हैं। अब आपको कोई संदेश नहीं भेजा जाएगा।
+
+<i>To re-activate at any time, send /start ${farmerId}</i>`;
+
+    return {
+      handled: true,
+      replyText,
+      action: 'opt_out',
+    };
+  }
+
+  // 3. /lang [hi|en|mr]
+  const langMatch = clean.match(/^\/lang(?:\s+(hi|en|mr))?$/i);
+  if (langMatch) {
+    const chosenLang = (langMatch[1]?.toLowerCase() as SupportedLanguage) || 'hi';
+    const existing = globalConsentStore.getByChatId(chat.id);
+
+    if (!existing) {
+      return {
+        handled: true,
+        replyText: '⚠️ Please subscribe first with /start before selecting a language.',
+        action: 'unknown',
+      };
+    }
+
+    updateLanguagePreference(existing.farmerId, chosenLang);
+
+    const langNames: Record<SupportedLanguage, string> = {
+      hi: 'Hindi (हिंदी)',
+      en: 'English',
+      mr: 'Marathi (मराठी)',
+    };
+
+    const replyText = `🌐 <b>Language Updated / भाषा अपडेट हो गई</b>
+
+Your notification language preference is now set to: <b>${langNames[chosenLang]}</b>.
+आपकी पसंदीदा भाषा <b>${langNames[chosenLang]}</b> सेट कर दी गई है।`;
+
+    return {
+      handled: true,
+      replyText,
+      action: 'language_change',
+      record: globalConsentStore.getByChatId(chat.id) || undefined,
+    };
+  }
+
+  // 4. /status
+  if (/^\/status/i.test(clean)) {
+    const existing = globalConsentStore.getByChatId(chat.id);
+
+    if (!existing || !existing.optInStatus) {
+      return {
+        handled: true,
+        replyText: `ℹ️ <b>AgriDOST Status: INACTIVE</b>\n\nYou are not currently subscribed to notifications.\nTo subscribe, send: /start <FARMER_ID>`,
+        action: 'status',
+      };
+    }
+
+    const replyText = `ℹ️ <b>AgriDOST Subscription Status: ACTIVE ✅</b>
+
+• Farmer ID: <code>${existing.farmerId}</code>
+• Chat ID: <code>${existing.chatId}</code>
+• Language: <code>${existing.languagePreference}</code>
+• Opt-In Date: ${existing.consentTimestamp}
+
+You are safely enrolled in consent-based advisory alerts.
+Send /stop anytime to unsubscribe.`;
+
+    return {
+      handled: true,
+      replyText,
+      action: 'status',
+      record: existing,
+    };
+  }
+
+  // 5. /help
+  if (/^\/(help|about)/i.test(clean)) {
+    const replyText = `🌾 <b>AgriDOST 4.0 Telegram Advisory Bot</b>
+
+This bot provides automated, consent-governed alerts for Indian farmers.
+
+<b>Strict Privacy & Consent Policy:</b>
+• We NEVER send notifications without prior farmer opt-in.
+• No spam, no marketing ads.
+• Instant opt-out with /stop.
+
+<b>Commands:</b>
+• <code>/start [FARMER_ID]</code> - Opt in and link your farmer profile
+• <code>/stop</code> - Immediately unsubscribe
+• <code>/status</code> - View current subscription status
+• <code>/lang hi|en|mr</code> - Set language (Hindi, English, Marathi)
+• <code>/help</code> - Show this guidance manual`;
+
+    return {
+      handled: true,
+      replyText,
+      action: 'help',
+    };
+  }
+
+  return {
+    handled: false,
+    replyText: `❓ Unrecognized command. Send /help for available commands or /start to subscribe.`,
+    action: 'unknown',
+  };
+}

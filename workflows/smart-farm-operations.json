@@ -1,0 +1,196 @@
+{
+  "name": "Smart Farm Operations & Weather Guard",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-trigger",
+      "name": "Daily Morning Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agridost-smart-farm-operations",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        450
+      ],
+      "webhookId": "agridost-smart-farm-operations"
+    },
+    {
+      "parameters": {
+        "jsCode": "// AgriDOST 4.0 - Weather Data Processor\n// Standardizes input and enforces agronomic baseline thresholds\nconst item = $input.first();\nconst payload = (item.json.body && item.json.body.payload) ? item.json.body.payload : (item.json.payload || item.json);\n\n// Safe Agronomic Fallback Defaults\nconst defaultWeather = {\n  temperatureC: 24,\n  windSpeedKmh: 8,\n  humidityPct: 60,\n  precipitationProbPct: 5,\n  condition: 'Clear - Fallback',\n  forecastTimestamp: new Date().toISOString(),\n  provider: 'agridost-weather-engine'\n};\n\nconst defaultThresholds = {\n  maxWindSpeedKmh: 15, // CIBRC / DGCA Spray threshold: max 15 km/h\n  maxTempC: 35,        // Avoid thermal drift & foliar burn: max 35°C\n  minHumidityPct: 40   // Avoid premature evaporation: min 40%\n};\n\nconst weatherData = Object.assign({}, defaultWeather, payload.weatherData || {});\nconst thresholds = Object.assign({}, defaultThresholds, payload.thresholds || {});\n\nconst farmId = (item.json.body && item.json.body.farmId) || item.json.farmId || 'demo-farm-01';\nconst farmerId = (item.json.body && item.json.body.farmerId) || item.json.farmerId || 'demo-farmer-01';\nconst eventId = (item.json.body && item.json.body.eventId) || item.json.eventId || ('evt_' + Math.random().toString(36).slice(2));\nconst eventType = (item.json.body && item.json.body.eventType) || item.json.eventType || 'operations.spray.window_evaluation';\nconst operationType = payload.operationType || 'spray';\n\nreturn [{\n  json: {\n    eventId,\n    eventType,\n    farmId,\n    farmerId,\n    operationType,\n    zoneId: payload.zoneId || 'all',\n    zoneName: payload.zoneName || (payload.zoneId ? `Zone ${payload.zoneId}` : 'All Parcels'),\n    targetCrop: payload.targetCrop || 'General Crop',\n    chemicalName: payload.chemicalName || null,\n    dosagePerAcre: payload.dosagePerAcre || null,\n    scheduledTime: payload.scheduledTime || new Date().toISOString(),\n    weatherData,\n    thresholds,\n    rawInput: payload\n  }\n}];"
+      },
+      "id": "node-weather-processor",
+      "name": "Weather Data Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AgriDOST 4.0 - Spray & Irrigation Feasibility Evaluator\n// Evaluates optimal/caution/unsafe suitability & enforces mandatory advisory-only safety gate\nconst item = $input.first().json;\nconst weather = item.weatherData;\nconst thresholds = item.thresholds;\n\nconst violations = [];\nconst warnings = [];\n\n// 1. Wind Speed Evaluation (Max 15 km/h for spraying)\nif (weather.windSpeedKmh > thresholds.maxWindSpeedKmh) {\n  violations.push(`Wind speed (${weather.windSpeedKmh} km/h) exceeds safe threshold (${thresholds.maxWindSpeedKmh} km/h). Severe chemical drift hazard.`);\n} else if (weather.windSpeedKmh >= 12) {\n  warnings.push(`Wind speed (${weather.windSpeedKmh} km/h) is near upper safety margin (15 km/h). Lower flight altitude advised.`);\n} else if (weather.windSpeedKmh < 3) {\n  warnings.push(`Low wind speed (${weather.windSpeedKmh} km/h). Risk of microclimate inversion.`);\n}\n\n// 2. Precipitation Probability Evaluation (Max 30%)\nif (weather.precipitationProbPct > 30) {\n  violations.push(`Precipitation probability (${weather.precipitationProbPct}%) exceeds safe limit (30%). Rain wash-off risk.`);\n} else if (weather.precipitationProbPct >= 20) {\n  warnings.push(`Moderate rain probability (${weather.precipitationProbPct}%). Allow 2-4 hours rain-fast window.`);\n}\n\n// 3. Temperature Evaluation (Max 35°C)\nif (weather.temperatureC > thresholds.maxTempC) {\n  violations.push(`Temperature (${weather.temperatureC}°C) exceeds safe threshold (${thresholds.maxTempC}°C). Evaporation and phytotoxicity risk.`);\n} else if (weather.temperatureC >= 30) {\n  warnings.push(`Elevated temperature (${weather.temperatureC}°C). Morning application recommended.`);\n}\n\n// 4. Humidity Evaluation\nif (weather.humidityPct < thresholds.minHumidityPct) {\n  warnings.push(`Low humidity (${weather.humidityPct}%). Droplets may evaporate rapidly.`);\n}\n\n// Determine Overall Suitability\nlet suitability = 'optimal';\nif (violations.length > 0) {\n  suitability = 'unsafe';\n} else if (warnings.length > 0) {\n  suitability = 'caution';\n}\n\n// Irrigation Specific Evaluation\nlet irrigationAdvisory = null;\nif (weather.precipitationProbPct >= 40) {\n  irrigationAdvisory = {\n    action: 'postpone',\n    recommendedVolumePct: 0,\n    reason: `Heavy rain chance (${weather.precipitationProbPct}%). Postpone irrigation to save water and avoid waterlogging.`\n  };\n} else if (weather.temperatureC > 32 && weather.humidityPct < 50) {\n  irrigationAdvisory = {\n    action: 'schedule_early_morning_or_evening',\n    recommendedVolumePct: 100,\n    reason: 'High evapotranspiration. Water strictly in early morning or late evening.'\n  };\n} else {\n  irrigationAdvisory = {\n    action: 'proceed',\n    recommendedVolumePct: 100,\n    reason: 'Optimal atmospheric moisture conditions.'\n  };\n}\n\n// MANDATORY SAFETY GATE: Autonomous drone spray / flight execution strictly blocked\nconst safetyGate = {\n  autonomousExecutionBlocked: true,\n  autonomousExecutionAllowed: false,\n  advisoryOnly: true,\n  requiresFarmerConfirmation: true,\n  status: 'advisory_only',\n  complianceNotice: 'In accordance with CIBRC & DGCA agricultural aviation norms, autonomous chemical spraying is blocked. Farmer validation is mandatory.'\n};\n\nreturn [{\n  json: {\n    ...item,\n    suitability,\n    violations,\n    warnings,\n    irrigationAdvisory,\n    safetyGate,\n    evaluationTimestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "node-feasibility-evaluator",
+      "name": "Spray & Irrigation Feasibility Evaluator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AgriDOST 4.0 - Notification Builder\n// Constructs localized bilingual alerts (English & Hindi) for the farmer and signs HMAC callback\nconst crypto = require('crypto');\nconst item = $input.first().json;\nconst suitability = item.suitability;\nconst zone = item.zoneName;\nconst weather = item.weatherData;\nconst isSpray = item.operationType === 'spray';\nconst secret = $env.N8N_WEBHOOK_SECRET || 'agridost_hmac_webhook_signing_secret_2026';\nconst baseAppUrl = ($env.AGRIDOST_APP_URL || $env.NEXT_PUBLIC_APP_URL || 'http://host.docker.internal:3000').replace(/\\/$/, '');\n\nlet alertEn = {};\nlet alertHi = {};\n\nif (suitability === 'unsafe') {\n  alertEn = {\n    title: `🚨 Spray Advisory: UNSAFE Weather Conditions`,\n    summary: `Operations in ${zone} are UNSAFE. Wind: ${weather.windSpeedKmh} km/h, Rain: ${weather.precipitationProbPct}%, Temp: ${weather.temperatureC}°C.`,\n    actionRecommendation: `DO NOT SPRAY. Postpone drone flight until wind drops below 12 km/h and rain probability subsides.`\n  };\n  alertHi = {\n    title: `🚨 छिड़काव सलाह: मौसम असुरक्षित है`,\n    summary: `${zone} में छिड़काव असुरक्षित है। हवा: ${weather.windSpeedKmh} किमी/घंटा, बारिश: ${weather.precipitationProbPct}%, तापमान: ${weather.temperatureC}°C।`,\n    actionRecommendation: `छिड़काव न करें। हवा की गति 12 किमी/घंटा से नीचे आने और बारिश की संभावना कम होने तक ड्रोन संचालन स्थगित करें।`\n  };\n} else if (suitability === 'caution') {\n  alertEn = {\n    title: `⚠️ Spray Advisory: CAUTION Advised`,\n    summary: `Marginal conditions in ${zone}. Wind: ${weather.windSpeedKmh} km/h, Temp: ${weather.temperatureC}°C.`,\n    actionRecommendation: `Proceed with caution. Monitor drift closely and use anti-drift spray nozzles.`\n  };\n  alertHi = {\n    title: `⚠️ छिड़काव सलाह: सावधानी बरतें`,\n    summary: `${zone} में मौसमी परिस्थितियां सीमांत हैं। हवा: ${weather.windSpeedKmh} किमी/घंटा, तापमान: ${weather.temperatureC}°C।`,\n    actionRecommendation: `सावधानी से कार्य करें। बहाव पर कड़ी नजर रखें और एंटी-ड्रिफ्ट नोजल का उपयोग करें।`\n  };\n} else {\n  alertEn = {\n    title: `✅ Spray Advisory: OPTIMAL Weather Window`,\n    summary: `Weather conditions in ${zone} are OPTIMAL for spraying. Wind: ${weather.windSpeedKmh} km/h, Temp: ${weather.temperatureC}°C.`,\n    actionRecommendation: `Safe to proceed with planned application. Verify flight perimeter and safety checks.`\n  };\n  alertHi = {\n    title: `✅ छिड़काव सलाह: अनुकूल मौसम`,\n    summary: `${zone} में छिड़काव के लिए मौसम पूरी तरह अनुकूल है। हवा: ${weather.windSpeedKmh} किमी/घंटा, तापमान: ${weather.temperatureC}°C।`,\n    actionRecommendation: `योजना के अनुसार संचालन शुरू करना सुरक्षित है। सुरक्षा जांच पूरी करें।`\n  };\n}\n\nconst timestamp = new Date().toISOString();\nconst callbackPayload = {\n  eventId: item.eventId,\n  workflowId: 'smart-farm-operations',\n  status: 'success',\n  inputSummary: `${item.operationType.toUpperCase()} feasibility check on farm ${item.farmId} (${item.zoneName})`,\n  outputSummary: `Feasibility: ${suitability.toUpperCase()} (Wind: ${weather.windSpeedKmh} km/h, Rain: ${weather.precipitationProbPct}%)`,\n  outputData: {\n    suitability,\n    violations: item.violations,\n    warnings: item.warnings,\n    bilingualAlert: { en: alertEn, hi: alertHi },\n    irrigationAdvisory: item.irrigationAdvisory,\n    safetyGate: item.safetyGate,\n    weatherData: item.weatherData,\n    thresholds: item.thresholds\n  },\n  completedAt: timestamp\n};\n\nconst rawBody = JSON.stringify(callbackPayload);\nconst signature = crypto\n  .createHmac('sha256', secret)\n  .update(`${timestamp}.${rawBody}`)\n  .digest('hex');\n\nconst signatureHeader = `t=${timestamp},v1=${signature}`;\nconst callbackUrl = `${baseAppUrl}/api/n8n/callback`;\n\nreturn [{\n  json: {\n    ...item,\n    bilingualAlert: {\n      en: alertEn,\n      hi: alertHi\n    },\n    callbackPayload,\n    callbackUrl,\n    rawBody,\n    signatureHeader,\n    sigTimestamp: timestamp\n  }\n}];"
+      },
+      "id": "node-notification-builder",
+      "name": "Notification Builder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl || (($env.AGRIDOST_APP_URL || $env.NEXT_PUBLIC_APP_URL || 'http://host.docker.internal:3000').replace(/\\/$/, '') + '/api/n8n/callback') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-AgriDOST-Event-ID",
+              "value": "={{ $json.callbackPayload.eventId }}"
+            },
+            {
+              "name": "X-AgriDOST-Timestamp",
+              "value": "={{ $json.sigTimestamp }}"
+            },
+            {
+              "name": "X-AgriDOST-Signature",
+              "value": "={{ $json.signatureHeader }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.callbackPayload) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "node-http-callback",
+      "name": "HTTP Request Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        350
+      ]
+    }
+  ],
+  "connections": {
+    "Daily Morning Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Weather Data Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Weather Data Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weather Data Processor": {
+      "main": [
+        [
+          {
+            "node": "Spray & Irrigation Feasibility Evaluator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Spray & Irrigation Feasibility Evaluator": {
+      "main": [
+        [
+          {
+            "node": "Notification Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification Builder": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "agridost-smart-farm-operations-v1",
+  "id": "smart-farm-operations",
+  "tags": [
+    {
+      "name": "agridost-4.0"
+    },
+    {
+      "name": "farm-operations"
+    },
+    {
+      "name": "weather-guard"
+    }
+  ]
+}

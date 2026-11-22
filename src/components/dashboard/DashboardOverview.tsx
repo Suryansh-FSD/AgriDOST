@@ -8,6 +8,7 @@ import { FarmMapPreview } from './FarmMapPreview';
 import { ZoneBreakdown } from './ZoneBreakdown';
 import { RecentActivity } from './RecentActivity';
 import { QuickActionToolbar } from './QuickActionToolbar';
+import { IntegrationHealthWidget } from './IntegrationHealthWidget';
 import { NavTab } from '../layout/Sidebar';
 
 interface DashboardOverviewProps {
@@ -66,6 +67,9 @@ export function DashboardOverview({ onNavigateToTab }: DashboardOverviewProps) {
           />
         </div>
       </div>
+
+      {/* External Integration Health Gateway */}
+      <IntegrationHealthWidget />
 
       {/* Field Action Feed */}
       <RecentActivity

@@ -11,6 +11,7 @@ import {
 import { saveFarm, getActiveFarm } from '@/lib/data/storage';
 import { DEMO_FARMS } from '@/lib/data/demo-data';
 import { VectorFarmMap } from './VectorFarmMap';
+import { GoogleFarmMap } from './GoogleFarmMap';
 import { DrawingToolbar, MapInteractionMode, MapRendererMode } from './DrawingToolbar';
 import {
   Satellite,
@@ -283,17 +284,28 @@ export function FarmMap({
 
       {/* Map Rendering Container */}
       <div className="relative w-full">
-        <VectorFarmMap
-          farm={farm}
-          zones={zones}
-          selectedZoneId={selectedZoneId}
-          onSelectZone={onSelectZone}
-          mode={interactionMode}
-          externalPoints={draftPoints}
-          onBoundaryChange={handleBoundaryChange}
-          allowDrawing={!readOnly}
-          height={height}
-        />
+        {rendererMode === 'satellite' ? (
+          <GoogleFarmMap
+            farm={farm}
+            zones={zones}
+            selectedZoneId={selectedZoneId}
+            onSelectZone={onSelectZone}
+            initialStyle="hybrid"
+            height={height}
+          />
+        ) : (
+          <VectorFarmMap
+            farm={farm}
+            zones={zones}
+            selectedZoneId={selectedZoneId}
+            onSelectZone={onSelectZone}
+            mode={interactionMode}
+            externalPoints={draftPoints}
+            onBoundaryChange={handleBoundaryChange}
+            allowDrawing={!readOnly}
+            height={height}
+          />
+        )}
       </div>
     </div>
   );

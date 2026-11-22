@@ -10,7 +10,11 @@ import {
   Plane,
   X,
   Info,
-  BookOpen
+  BookOpen,
+  Landmark,
+  Workflow,
+  TrendingUp,
+  Send
 } from 'lucide-react';
 
 export type NavTab = 
@@ -19,7 +23,12 @@ export type NavTab =
   | 'planner' 
   | 'health' 
   | 'operations' 
-  | 'drone';
+  | 'drone'
+  | 'schemes'
+  | 'automation'
+  | 'market'
+  | 'telegram';
+
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -82,6 +91,34 @@ export function Sidebar({
       description: 'Precision spray zone & GeoJSON',
       icon: Plane,
       badge: 'GeoJSON',
+    },
+    {
+      id: 'schemes',
+      label: 'Government Assistance',
+      description: 'Central & State schemes & tracker',
+      icon: Landmark,
+      badge: 'Verified',
+    },
+    {
+      id: 'market',
+      label: 'Market & Mandi',
+      description: 'APMC spot prices & MSP advisory',
+      icon: TrendingUp,
+      badge: 'Live',
+    },
+    {
+      id: 'telegram',
+      label: 'Telegram Alerts',
+      description: 'Farmer opt-in & bot alerts',
+      icon: Send,
+      badge: 'Bot',
+    },
+    {
+      id: 'automation',
+      label: 'Automation Center',
+      description: 'n8n autonomous workflows & execution logs',
+      icon: Workflow,
+      badge: 'n8n',
     },
   ];
 

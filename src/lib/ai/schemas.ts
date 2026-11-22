@@ -43,6 +43,7 @@ export const AIHealthRequestSchema = z.object({
   farmId: z.string().optional(),
   zoneId: z.string().optional(),
   additionalNotes: z.string().optional(),
+  language: z.enum(['en', 'hi']).optional().default('en'),
 });
 
 export type AIHealthRequest = z.infer<typeof AIHealthRequestSchema>;
@@ -80,5 +81,97 @@ export interface HealthApiResponse {
   cropName?: string;
   farmId?: string;
   zoneId?: string;
+  model?: string;
   analyzedAt: string;
+}
+
+// ============================================================================
+// AGRONOMIC ADVISORY SCHEMAS (ICAR / KVK / CIBRC GROUNDED)
+// ============================================================================
+
+export const AgronomicAdvisoryRequestSchema = z.object({
+  cropName: z.string().min(1, 'Crop name is required'),
+  cropStage: z.string().optional().default('vegetative'),
+  soilType: z.string().optional(),
+  locationDetails: z
+    .object({
+      state: z.string().optional(),
+      district: z.string().optional(),
+      pincode: z.string().optional(),
+    })
+    .optional(),
+  weatherContext: z
+    .object({
+      temperature: z.number().optional(),
+      humidity: z.number().optional(),
+      rainfallForecastMm: z.number().optional(),
+      conditions: z.string().optional(),
+    })
+    .optional(),
+  farmerQuestion: z.string().optional(),
+  language: z.enum(['en', 'hi']).default('en'),
+  farmId: z.string().optional(),
+  zoneId: z.string().optional(),
+});
+
+export type AgronomicAdvisoryRequest = z.infer<typeof AgronomicAdvisoryRequestSchema>;
+
+export const CibrcTreatmentSchema = z.object({
+  name: z.string().describe('CIBRC approved chemical or biological active ingredient'),
+  dosage: z.string().describe('Approved dosage per acre or per liter of spray fluid'),
+  targetPest: z.string().optional().describe('Target weed, insect, or fungal pathogen'),
+  safetyIntervalDays: z.number().optional().describe('Pre-Harvest Interval (PHI) waiting period in days'),
+});
+
+export const AgronomicAdvisorySchema = z.object({
+  crop: z.string(),
+  stage: z.string(),
+  language: z.enum(['en', 'hi']).default('en'),
+  summary: z.string().describe('Executive agronomic summary and immediate focus'),
+  primaryRecommendation: z.string().describe('Core seasonal guidance based on crop growth stage'),
+  irrigationGuidance: z.object({
+    recommendation: z.string(),
+    schedule: z.string(),
+    waterRequirement: z.string(),
+  }),
+  fertilizerNutrition: z.object({
+    macroNutrients: z.string().describe('NPK dosage in kg/acre or gm/plant adhering to ICAR standards'),
+    microNutrients: z.string().optional(),
+    applicationMethod: z.string(),
+    organicAlternatives: z.array(z.string()).default([]),
+  }),
+  pestDiseasePrecaution: z.object({
+    threats: z.array(z.string()).min(1),
+    preventiveMeasures: z.array(z.string()).min(1),
+    cibrcApprovedTreatments: z.array(CibrcTreatmentSchema).default([]),
+    organicAlternatives: z.array(z.string()).default([]),
+  }),
+  contingencyWeatherAdvisory: z.string().describe('Weather-reactive intervention (e.g. rain, heat, humidity surge)'),
+  groundedPractices: z.object({
+    practices: z.array(z.string()).min(1),
+    institutionalSources: z
+      .array(
+        z.object({
+          name: z.string(),
+          type: z.enum(['ICAR', 'KVK', 'CIBRC', 'SAU', 'GOI']),
+          url: z.string().optional(),
+        })
+      )
+      .min(1),
+  }),
+  disclaimer: z.string().describe('Mandatory non-clinical agronomic advisory disclaimer'),
+  generatedAt: z.string(),
+});
+
+export type AgronomicAdvisory = z.infer<typeof AgronomicAdvisorySchema>;
+
+export interface AdvisoryApiResponse {
+  success: boolean;
+  status: 'live' | 'offline_fallback' | 'error';
+  data?: AgronomicAdvisory;
+  message?: string;
+  error?: string;
+  model?: string;
+  source?: 'gemini_live' | 'icar_kvk_offline_registry';
+  generatedAt: string;
 }

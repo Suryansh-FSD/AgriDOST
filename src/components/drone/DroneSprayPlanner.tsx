@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { Farm, FarmZone, SprayOperation, DroneSprayExport, GeoJSONPolygon, Position } from '@/types';
 import * as storage from '@/lib/data/storage';
+import { fetchFarmWeather, OPEN_METEO_ATTRIBUTION } from '@/lib/weather';
 
 interface DroneSprayPlannerProps {
   farm?: Farm;
@@ -64,12 +65,58 @@ export function DroneSprayPlanner({ farm: propFarm, onOperationSaved }: DroneSpr
   const [temperatureC, setTemperatureC] = useState<number>(25.0);
   const [humidityPct, setHumidityPct] = useState<number>(65);
   const [windDirection, setWindDirection] = useState<string>('NW (315°)');
+  const [weatherTelemetry, setWeatherTelemetry] = useState<{
+    provenance: string;
+    isLive: boolean;
+    timestamp: string;
+    conditionText?: string;
+  } | null>(null);
+  const [isLoadingWeather, setIsLoadingWeather] = useState<boolean>(false);
 
   // Mandatory Human Verification Checkbox
   const [humanVerified, setHumanVerified] = useState<boolean>(false);
 
   // Toast notifications
   const [toastMessage, setToastMessage] = useState<{ title: string; desc: string; type: 'success' | 'warn' } | null>(null);
+
+  // Fetch Live Farm Weather via Open-Meteo
+  const handleFetchLiveWeather = async () => {
+    setIsLoadingWeather(true);
+    try {
+      // Resolve coordinates from active farm centroid or default Nashik
+      const coords = activeFarm?.locationDetails?.coordinates;
+      const lat = coords ? coords[1] : 20.00;
+      const lon = coords ? coords[0] : 73.78;
+
+      const data = await fetchFarmWeather({ latitude: lat, longitude: lon, forceRefresh: true });
+      if (data && data.current) {
+        setWindSpeedKmh(data.current.windSpeed);
+        setTemperatureC(data.current.temperature);
+        setHumidityPct(data.current.relativeHumidity);
+        setWindDirection(`${data.current.windDirection}°`);
+        setWeatherTelemetry({
+          provenance: data.freshness?.provenance || 'simulated_fallback',
+          isLive: data.freshness?.provenance === 'live_api',
+          timestamp: data.current.time,
+          conditionText: data.current.conditionText,
+        });
+
+        setToastMessage({
+          title: data.freshness?.provenance === 'live_api' ? 'Live Telemetry Synced' : 'Offline Forecast Loaded',
+          desc: `${data.current.conditionText} (${data.current.temperature}°C, Wind: ${data.current.windSpeed} km/h). Source: ${OPEN_METEO_ATTRIBUTION}`,
+          type: 'success',
+        });
+      }
+    } catch {
+      setToastMessage({
+        title: 'Weather Sync Note',
+        desc: 'Could not reach Open-Meteo. Operating on deterministic fallback.',
+        type: 'warn',
+      });
+    } finally {
+      setIsLoadingWeather(false);
+    }
+  };
 
   // Sync farm
   useEffect(() => {
@@ -577,12 +624,28 @@ export function DroneSprayPlanner({ farm: propFarm, onOperationSaved }: DroneSpr
 
           {/* Weather & Spray Safety Index Simulator */}
           <div className="bg-white rounded-2xl border border-[#E7E9E2] p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-[#173F2B] text-sm flex items-center gap-2">
-                <Wind className="w-4 h-4 text-[#173F2B]" />
-                Weather & Spray Safety Simulator
-              </h3>
-              <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-[#173F2B] text-sm flex items-center gap-2">
+                  <Wind className="w-4 h-4 text-[#173F2B]" />
+                  Weather & Spray Safety Simulator
+                </h3>
+                {weatherTelemetry && (
+                  <p className="text-[10px] text-[#26312A]/70 mt-0.5">
+                    Mode: <span className="font-semibold">{weatherTelemetry.provenance.toUpperCase()}</span> • {weatherTelemetry.conditionText || 'Conditions updated'} • Open-Meteo CC-BY 4.0
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleFetchLiveWeather}
+                  disabled={isLoadingWeather}
+                  className="text-[11px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium shadow-xs disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {isLoadingWeather ? 'Syncing...' : 'Live Open-Meteo'}
+                </button>
                 <button
                   type="button"
                   onClick={() => applyWeatherPreset('dawn')}
